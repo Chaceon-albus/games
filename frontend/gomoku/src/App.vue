@@ -87,6 +87,7 @@ const hoveredCell = ref<{ row: number; col: number }>({ row: 0, col: 0 })
 const isHoverActive = ref(false)
 const noTransition = ref(false)
 const showSettingsPopover = ref(false)
+const showResignDialog = ref(false)
 
 const handleCellMouseEnter = (r: number, c: number) => {
   const isEmpty = state.board.value[r][c] === null
@@ -159,6 +160,10 @@ const handleSendChat = () => {
     state.sendChat(chatInput.value)
     chatInput.value = ''
   }
+}
+
+const handleResign = () => {
+  showResignDialog.value = true
 }
 
 // 15x15 Star Points checker
@@ -248,7 +253,7 @@ const isLastMove = (r: number, c: number) => {
                 block
                 size="lg"
                 color="primary"
-                class="font-bold shadow-lg shadow-indigo-200 hover:shadow-indigo-300 transition-all rounded-xl"
+                class="font-bold shadow-md hover:shadow-lg shadow-slate-200 hover:shadow-slate-300 transition-all rounded-xl cursor-pointer"
                 trailing-icon="i-heroicons-arrow-right-20-solid"
               >
                 进入游戏
@@ -323,9 +328,9 @@ const isLastMove = (r: number, c: number) => {
                   <UBadge
                     :color="
                       room.status === 'waiting'
-                        ? 'success'
+                        ? 'neutral'
                         : room.status === 'playing'
-                          ? 'primary'
+                          ? 'success'
                           : 'warning'
                     "
                     variant="subtle"
@@ -372,7 +377,10 @@ const isLastMove = (r: number, c: number) => {
               </h2>
               <p class="text-sm text-slate-600">
                 房间ID: {{ state.activeRoom.value?.id }} | 状态:
-                <span class="font-bold text-indigo-600">
+                <span 
+                  class="font-bold"
+                  :class="[state.gameStatus.value === 'playing' ? 'text-emerald-600' : 'text-slate-600']"
+                >
                   {{ state.gameStatus.value === 'playing' ? '对局中' : '等待中' }}
                 </span>
               </p>
@@ -669,7 +677,7 @@ const isLastMove = (r: number, c: number) => {
                         </UBadge>
                         <span
                           v-if="state.playerBlack.value?.name === state.nickname.value"
-                          class="text-xs font-bold text-indigo-500"
+                          class="text-xs font-bold text-sky-500"
                         >
                           (我)
                         </span>
@@ -739,7 +747,7 @@ const isLastMove = (r: number, c: number) => {
                         </UBadge>
                         <span
                           v-if="state.playerWhite.value?.name === state.nickname.value"
-                          class="text-xs font-bold text-purple-500"
+                          class="text-xs font-bold text-sky-500"
                         >
                           (我)
                         </span>
@@ -838,7 +846,7 @@ const isLastMove = (r: number, c: number) => {
                       }}
                     </UButton>
 
-                    <!-- 认输 -->
+                     <!-- 认输 -->
                     <UButton
                       block
                       color="danger"
@@ -849,7 +857,7 @@ const isLastMove = (r: number, c: number) => {
                         state.simulationRole.value === 'spectator' ||
                         state.gameStatus.value !== 'playing'
                       "
-                      @click="state.resignGame"
+                      @click="handleResign"
                     >
                       认输
                     </UButton>
@@ -857,7 +865,7 @@ const isLastMove = (r: number, c: number) => {
                     <!-- 准备 -->
                     <UButton
                       block
-                      color="primary"
+                      :color="state.gameStatus.value === 'playing' ? 'success' : 'primary'"
                       :variant="
                         state.gameStatus.value === 'playing'
                           ? 'soft'
@@ -870,7 +878,8 @@ const isLastMove = (r: number, c: number) => {
                             : 'solid'
                       "
                       size="md"
-                      class="font-bold rounded-xl shadow-md shadow-indigo-50"
+                      class="font-bold rounded-xl shadow-md"
+                      :class="[state.gameStatus.value === 'playing' ? 'shadow-emerald-50' : 'shadow-indigo-50']"
                       :disabled="
                         state.simulationRole.value === 'spectator' ||
                         state.gameStatus.value === 'playing'
@@ -938,7 +947,9 @@ const isLastMove = (r: number, c: number) => {
             class="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-6 transform scale-100 transition-all duration-300"
           >
             <div class="flex items-center gap-3">
-              <span class="text-3xl">🔄</span>
+              <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+                <UIcon name="i-heroicons-arrow-path" class="w-6 h-6" />
+              </div>
               <div>
                 <h3 class="font-extrabold text-lg text-slate-800">对方请求悔棋</h3>
                 <p class="text-xs text-slate-400">请选择是否同意对方的悔棋申请</p>
@@ -948,10 +959,7 @@ const isLastMove = (r: number, c: number) => {
             <div
               class="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-semibold text-slate-700 leading-relaxed text-center"
             >
-              <span class="text-indigo-600 font-extrabold">
-                {{ state.retractRequesterName.value }}
-              </span>
-              请求撤回上一步落子。
+              【{{ state.retractRequesterName.value }}】请求撤回上一步落子。
             </div>
 
             <div class="grid grid-cols-2 gap-4">
@@ -962,10 +970,50 @@ const isLastMove = (r: number, c: number) => {
                 拒绝
               </button>
               <button
-                class="w-full py-3 rounded-2xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md shadow-indigo-100 cursor-pointer"
+                class="w-full py-3 rounded-2xl font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-md shadow-emerald-100 cursor-pointer"
                 @click="state.respondRetract(true)"
               >
                 同意悔棋
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Resign Consent Dialog (Custom CSS Modal) -->
+      <transition name="modal-fade">
+        <div
+          v-if="showResignDialog"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 select-none"
+        >
+          <div
+            class="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-6 transform scale-100 transition-all duration-300"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
+                <UIcon name="i-heroicons-flag" class="w-6 h-6" />
+              </div>
+              <div>
+                <h3 class="font-extrabold text-lg text-slate-800">确认认输吗？</h3>
+                <p class="text-xs text-slate-400">认输后将直接判定对方获得本局胜利</p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <button
+                class="w-full py-3 rounded-2xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all shadow-sm cursor-pointer"
+                @click="showResignDialog = false"
+              >
+                继续对局
+              </button>
+              <button
+                class="w-full py-3 rounded-2xl font-bold bg-red-600 hover:bg-red-700 text-white transition-all shadow-md shadow-red-100 cursor-pointer"
+                @click="
+                  state.resignGame();
+                  showResignDialog = false;
+                "
+              >
+                确认认输
               </button>
             </div>
           </div>

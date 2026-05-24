@@ -533,21 +533,7 @@ func (m *Manager) handleAction(s *melody.Session, uuid string, msg ClientMessage
 
 		if room.Resign(uuid) {
 			m.broadcastRoomState(room)
-			var winnerName string
-			if room.Winner == "black" {
-				if room.HostColor == "black" {
-					winnerName = room.Host.Name
-				} else {
-					winnerName = room.Opponent.Name
-				}
-			} else {
-				if room.HostColor == "white" {
-					winnerName = room.Host.Name
-				} else {
-					winnerName = room.Opponent.Name
-				}
-			}
-			m.broadcastSystemMessage(room.ID, fmt.Sprintf("【%s】认输。恭喜【%s】获得胜利！🏅", player.Name, winnerName))
+			m.broadcastSystemMessage(room.ID, fmt.Sprintf("【%s】认输。", player.Name))
 		}
 
 	case "configure_room":

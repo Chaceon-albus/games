@@ -24,24 +24,24 @@ type Coord struct {
 }
 
 type Room struct {
-	ID                string       `json:"id"`
-	Name              string       `json:"name"`
-	Status            string       `json:"status"` // "waiting" or "playing"
-	Host              *Player      `json:"host"`   // First player to join
-	Opponent          *Player      `json:"opponent"` // Second player to join, or nil
-	Spectators        []*Player    `json:"spectators"`
-	Config            RoomConfig   `json:"config"`
-	History           []Move       `json:"history"`
-	Turn              string       `json:"turn"` // "black" or "white"
-	Winner            string       `json:"winner"` // "black", "white", "draw", or ""
-	WinningLine       []Coord      `json:"winningLine"`
-	HostColor         string       `json:"hostColor"`     // "black" or "white"
-	OpponentColor     string       `json:"opponentColor"` // "black" or "white"
-	ConsecutiveGames     int          `json:"consecutiveGames"`
-	RetractRequester     string       `json:"retractRequester"` // UUID of player requesting retract
-	RetractRequesterName string       `json:"retractRequesterName"` // Public display name of retract requester
+	ID                   string               `json:"id"`
+	Name                 string               `json:"name"`
+	Status               string               `json:"status"`   // "waiting" or "playing"
+	Host                 *Player              `json:"host"`     // First player to join
+	Opponent             *Player              `json:"opponent"` // Second player to join, or nil
+	Spectators           []*Player            `json:"spectators"`
+	Config               RoomConfig           `json:"config"`
+	History              []Move               `json:"history"`
+	Turn                 string               `json:"turn"`   // "black" or "white"
+	Winner               string               `json:"winner"` // "black", "white", "draw", or ""
+	WinningLine          []Coord              `json:"winningLine"`
+	HostColor            string               `json:"hostColor"`     // "black" or "white"
+	OpponentColor        string               `json:"opponentColor"` // "black" or "white"
+	ConsecutiveGames     int                  `json:"consecutiveGames"`
+	RetractRequester     string               `json:"retractRequester"`     // UUID of player requesting retract
+	RetractRequesterName string               `json:"retractRequesterName"` // Public display name of retract requester
 	LastRetractTime      map[string]time.Time `json:"-"`
-	mu                   sync.Mutex   `json:"-"`
+	mu                   sync.Mutex           `json:"-"`
 }
 
 // NewRoom creates a new Room with standard settings
@@ -155,7 +155,7 @@ func (r *Room) handleVacancy() {
 		r.Host = r.Spectators[0]
 		r.Host.IsReady = false
 		r.Spectators = r.Spectators[1:]
-		
+
 		// If there is another spectator and auto-join is on, fill the opponent slot
 		if r.Opponent == nil && r.Config.AutoJoinSpectator && len(r.Spectators) > 0 {
 			r.Opponent = r.Spectators[0]
@@ -356,7 +356,7 @@ func (r *Room) RequestRetract(uuid string) bool {
 	// Register requester and update cooldown timestamp
 	r.RetractRequester = uuid
 	r.LastRetractTime[uuid] = time.Now()
-	
+
 	if r.Host != nil && r.Host.UUID == uuid {
 		r.RetractRequesterName = r.Host.Name
 	} else if r.Opponent != nil && r.Opponent.UUID == uuid {
@@ -499,9 +499,10 @@ func (r *Room) SwitchRole(uuid string, targetRole string) bool {
 			success = true
 		}
 	case "spectator":
-		if currentRole == "host" {
+		switch currentRole {
+		case "host":
 			r.Host = nil
-		} else if currentRole == "opponent" {
+		case "opponent":
 			r.Opponent = nil
 		}
 		r.Spectators = append(r.Spectators, targetPlayer)
@@ -540,10 +541,10 @@ func (r *Room) checkWin(row, col int, color string) []Coord {
 	}
 
 	directions := [][][2]int{
-		{{0, 1}, {0, -1}},   // Horizontal
-		{{1, 0}, {-1, 0}},   // Vertical
-		{{1, 1}, {-1, -1}},  // Diagonal \
-		{{1, -1}, {-1, 1}},  // Counter-diagonal /
+		{{0, 1}, {0, -1}},  // Horizontal
+		{{1, 0}, {-1, 0}},  // Vertical
+		{{1, 1}, {-1, -1}}, // Diagonal \
+		{{1, -1}, {-1, 1}}, // Counter-diagonal /
 	}
 
 	for _, dir := range directions {

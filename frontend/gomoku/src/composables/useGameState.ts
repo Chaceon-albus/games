@@ -468,6 +468,7 @@ export function useGameState() {
     if (gameStatus.value !== 'playing') return
     if (simulationRole.value === 'spectator') return
     if (board.value[row][col] !== null) return
+    if (turn.value !== simulationRole.value) return
 
     // Pre-play place sound for responsive feeling
     playPlaceSound()
