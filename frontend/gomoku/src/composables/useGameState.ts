@@ -131,6 +131,13 @@ export function useGameState() {
     resetGameState()
   }
 
+  const logout = () => {
+    localStorage.removeItem('gomoku_nickname')
+    const randNum = Math.floor(100 + Math.random() * 900)
+    nickname.value = `五子棋玩家#${randNum}`
+    currentView.value = 'login'
+  }
+
   const resetGameState = () => {
     board.value = Array(boardSize)
       .fill(null)
@@ -232,6 +239,106 @@ export function useGameState() {
     }
   }
 
+  // --- SOUND EFFECT (Web Audio API) ---
+  // Simulates a stone hitting a wooden Go board by layering:
+  //   1. Filtered noise burst  → sharp "clack" of stone impact
+  //   2. Low sine resonance    → wooden board body thud
+
+  let audioCtx: AudioContext | null = null
+  let noiseBuffer: AudioBuffer | null = null
+
+  const getNoiseBuffer = (ctx: AudioContext): AudioBuffer => {
+    if (noiseBuffer) return noiseBuffer
+    const sampleRate = ctx.sampleRate
+    const length = Math.floor(sampleRate * 0.1)
+    const buffer = ctx.createBuffer(1, length, sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < length; i++) {
+      data[i] = Math.random() * 2 - 1
+    }
+    noiseBuffer = buffer
+    return noiseBuffer
+  }
+
+  const playPlaceSound = () => {
+    try {
+      if (!audioCtx) {
+        audioCtx = new AudioContext()
+      }
+      const ctx = audioCtx
+      if (ctx.state === 'suspended') ctx.resume()
+
+      const now = ctx.currentTime
+
+      const masterGain = ctx.createGain()
+      masterGain.gain.setValueAtTime(0.5, now) // 设定相对音量
+      masterGain.connect(ctx.destination)
+
+      const randomFactor = Math.random() * 0.06 + 0.97 // 减小随机范围，保持音色稳定
+
+      // 320Hz左右的基频模拟“笃笃”的中低木质区
+      const baseFreq = 320 * randomFactor
+      const clickVolume = 0.3 * (Math.random() * 0.2 + 0.9)
+
+      // ==========================================
+      // 图层 1：棋子清脆的撞击声（保持硬度）
+      // ==========================================
+      const playClick = (timeOffset: number, volume: number, duration: number) => {
+        const noiseSource = ctx.createBufferSource()
+        noiseSource.buffer = getNoiseBuffer(ctx)
+
+        const filter = ctx.createBiquadFilter()
+        filter.type = 'bandpass'
+        filter.frequency.setValueAtTime(3200 * randomFactor, now + timeOffset) // 更清脆
+        filter.Q.setValueAtTime(1.5, now + timeOffset) // 提高Q值，让敲击声更硬、更像实体
+
+        const gainNode = ctx.createGain()
+        gainNode.gain.setValueAtTime(volume, now + timeOffset)
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + timeOffset + duration)
+
+        noiseSource.connect(filter)
+        filter.connect(gainNode)
+        gainNode.connect(ctx.destination)
+
+        noiseSource.start(now + timeOffset)
+        noiseSource.stop(now + timeOffset + duration)
+      }
+
+      // 依然保留微回弹，但缩短主撞击时间
+      playClick(0, clickVolume, 0.025)
+      playClick(0.012, clickVolume * 0.3, 0.015)
+
+      // ==========================================
+      // 图层 2：棋盘的木质共振（去低频、极速衰减）
+      // ==========================================
+      // 【核心调整 2】极致缩短 decay 时间。木头对高频和极低频吸收极快，不能让它拖尾
+      const resonances = [
+        { freq: baseFreq, gain: 0.2, decay: 0.04 }, // 主木质音
+        { freq: baseFreq * 1.8, gain: 0.12, decay: 0.03 }, // 泛音1
+        { freq: baseFreq * 2.6, gain: 0.06, decay: 0.02 } // 泛音2
+      ]
+
+      resonances.forEach(res => {
+        const osc = ctx.createOscillator()
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(res.freq, now)
+
+        const gainNode = ctx.createGain()
+        gainNode.gain.setValueAtTime(res.gain, now)
+        // 使用 exponentialRamp 极速收尾，消除任何“砰”的尾音腔调
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + res.decay)
+
+        osc.connect(gainNode)
+        gainNode.connect(masterGain)
+
+        osc.start(now)
+        osc.stop(now + res.decay)
+      })
+    } catch (e) {
+      // 静默失败
+    }
+  }
+
   // --- GAMEPLAY LOGIC ---
 
   const placeStone = (row: number, col: number) => {
@@ -243,6 +350,9 @@ export function useGameState() {
     board.value[row][col] = currentPlayerColor
     history.value.push({ row, col, player: currentPlayerColor })
 
+    // Play the stone placement sound
+    playPlaceSound()
+
     const winCoords = checkWin(row, col, currentPlayerColor)
     if (winCoords) {
       gameStatus.value = 'ended'
@@ -253,7 +363,7 @@ export function useGameState() {
         currentPlayerColor === 'black'
           ? playerBlack.value?.name || '黑方'
           : playerWhite.value?.name || '白方'
-      pushSystemMessage(`恭喜！【${winnerName}】达成五子相连，获得本局胜利！🎉`)
+      pushSystemMessage(`【${winnerName}】达成五子相连，获得本局胜利！🎉`)
       return
     }
 
@@ -429,6 +539,7 @@ export function useGameState() {
     retractMove,
     resignGame,
     sendChat,
-    resetGameState
+    resetGameState,
+    logout
   }
 }

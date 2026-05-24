@@ -36,24 +36,32 @@ body {
   position: relative;
 }
 
-/* 15x15 Grid Layout - Fully occupies 78vh vertical screen space on PC */
-.board-grid {
-  display: flex;
-  flex-direction: column;
+/* 15x15 Grid Layout Wrapper - For absolute coordinates centering */
+.board-grid-wrapper {
+  position: relative;
   width: 78vh;
   height: 78vh;
   min-width: 360px;
   min-height: 360px;
   max-width: 680px;
   max-height: 680px;
-  user-select: none;
 }
 
-@media (max-width: 968px) {
-  .board-grid {
-    width: 360px !important;
-    height: 360px !important;
+@media (max-width: 1280px) {
+  .board-grid-wrapper {
+    width: calc(100vw - 64px) !important;
+    height: calc(100vw - 64px) !important;
+    min-width: 280px;
+    min-height: 280px;
   }
+}
+
+.board-grid {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  user-select: none;
 }
 
 .board-row {
@@ -156,6 +164,27 @@ body {
     inset 0 1.5px 1.5px rgba(0, 0, 0, 0.05);
 }
 
+/* HOVER CORNER INDICATOR - Four elegant corner L-brackets highlighting the intersection */
+.hover-corner-indicator {
+  position: absolute;
+  transform: scale(0.92);
+  color: #6366f1; /* Premium Indigo */
+  opacity: 0;
+  pointer-events: none; /* Make sure it doesn't block click events */
+  transition:
+    opacity 0.15s ease,
+    left 0.15s cubic-bezier(0.25, 1, 0.5, 1),
+    top 0.15s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.hover-corner-indicator.is-active {
+  opacity: 0.45;
+}
+
+.hover-corner-indicator.no-transition {
+  transition: opacity 0.15s ease !important; /* Instant position update when entering */
+}
+
 /* Floating animation when placing a stone */
 .stone-placed-animation {
   animation: placeStoneAnim 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -223,9 +252,15 @@ body {
   max-height: 724px;
 }
 
-@media (max-width: 968px) {
+@media (max-width: 1280px) {
   .match-hub-card {
     height: auto !important;
     max-height: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .match-hub-card {
+    min-height: 0 !important;
   }
 }
