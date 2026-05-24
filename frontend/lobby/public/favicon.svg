@@ -1,42 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
   <defs>
-    <linearGradient id="bili-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="bili-gradient" x1="2" y1="5" x2="22" y2="21.5"
+      gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#fb7299" />
       <stop offset="100%" stop-color="#66ccff" />
     </linearGradient>
-
     <filter id="subtle-glow" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur stdDeviation="0.6" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
-
+  <path d="M 6.4 5 H 17.6 L 22 9.234980 L 12 21.5 L 2 9.234980 Z" fill="url(#bili-gradient)"
+    fill-opacity="0.1" stroke="url(#bili-gradient)" stroke-width="1.6" stroke-linecap="round"
+    stroke-linejoin="round" filter="url(#subtle-glow)" />
   <path
-    d="M6 3h12l4 6-10 12L2 9z"
-    fill="url(#bili-gradient)"
-    fill-opacity="0.1"
-    stroke="url(#bili-gradient)"
-    stroke-width="1.8"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    filter="url(#subtle-glow)"
-  />
-
-  <path
-    d="M11 3 8 9l4 12 4-12-3-6"
-    stroke="url(#bili-gradient)"
-    stroke-width="1.2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-opacity="0.9"
-  />
-
-  <path
-    d="M2 9h20"
-    stroke="url(#bili-gradient)"
-    stroke-width="1.2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-opacity="0.9"
-  />
+    d="M 6.4 5 L 7 9.234980 M 9.4 5 L 7 9.234980 M 9.4 5 L 12 9.234980 M 14.6 5 L 12 9.234980 M 14.6 5 L 17 9.234980 M 17.6 5 L 17 9.234980"
+    stroke="url(#bili-gradient)" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"
+    stroke-opacity="0.9" />
+  <path d="M 2 9.234980 H 22" stroke="url(#bili-gradient)" stroke-width="1.1" stroke-linecap="round"
+    stroke-linejoin="round" stroke-opacity="0.95" />
+  <path d="M 7 9.234980 L 12 21.5 M 12 9.234980 L 12 21.5 M 17 9.234980 L 12 21.5"
+    stroke="url(#bili-gradient)" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"
+    stroke-opacity="0.9" />
 </svg>

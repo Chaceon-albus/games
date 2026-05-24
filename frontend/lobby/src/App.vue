@@ -28,19 +28,7 @@ const currentYear = new Date().getFullYear()
       <!-- Coming Soon Placeholder Card with Quote -->
       <div class="coming-soon-card">
         <div class="placeholder-icon-container">
-          <svg
-            class="sparkle-svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M6 3h12l4 6-10 12L2 9z"></path>
-            <path d="M11 3 8 9l4 12 4-12-3-6"></path>
-            <path d="M2 9h20"></path>
-          </svg>
+          <img src="/favicon.svg" alt="更多内容敬请期待" class="sparkle-svg" />
         </div>
 
         <h3 class="placeholder-title">更多内容敬请期待</h3>
