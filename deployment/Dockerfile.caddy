@@ -7,6 +7,7 @@ RUN pnpm env use --global lts
 
 # Copy dependency files to cache the package installation layer
 COPY frontend/lobby/package.json frontend/lobby/pnpm-lock.yaml ./
+RUN pnpm config set strict-dep-builds false
 RUN pnpm install --frozen-lockfile
 
 # Copy the rest of the application code and build
@@ -23,6 +24,7 @@ RUN pnpm env use --global lts
 
 # Copy dependency files to cache the package installation layer
 COPY frontend/gomoku/package.json frontend/gomoku/pnpm-lock.yaml ./
+RUN pnpm config set strict-dep-builds false
 RUN pnpm install --frozen-lockfile
 
 # Copy the rest of the application code and build

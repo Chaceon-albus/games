@@ -12,9 +12,11 @@ services:
     build:
       context: .
       dockerfile: ./deployment/Dockerfile.caddy
-    container_name: crystal-games-frontend
+    container_name: crystal-games-caddy
     ports:
-      - "80:80"
+      # Allows configuring the bind address/port via the CADDY_BIND_ADDRESS env var (e.g., CADDY_BIND_ADDRESS=127.0.0.1:8080).
+      # Defaults to public port 80 if the env var is not specified.
+      - "${CADDY_BIND_ADDRESS:-80}:80"
     restart: unless-stopped
     depends_on:
       - backend
