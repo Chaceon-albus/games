@@ -2,6 +2,9 @@
 import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import { useGameState } from './composables/useGameState'
 
+// Declare useToast globally for TypeScript compilation since it is auto-imported by the Nuxt UI Vite plugin at build/runtime
+declare const useToast: any
+
 // Initialize game state
 const state = useGameState()
 
