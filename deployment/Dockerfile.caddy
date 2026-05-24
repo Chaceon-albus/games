@@ -1,0 +1,54 @@
+# Stage 1: Build the Lobby frontend application
+FROM ghcr.io/pnpm/pnpm:latest AS lobby-builder
+WORKDIR /app
+
+# Install and activate the latest Node.js LTS version
+RUN pnpm env use --global lts
+
+# Copy dependency files to cache the package installation layer
+COPY frontend/lobby/package.json frontend/lobby/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# Copy the rest of the application code and build
+COPY frontend/lobby ./
+RUN pnpm build
+
+
+# Stage 2: Build the Gomoku frontend application
+FROM ghcr.io/pnpm/pnpm:latest AS gomoku-builder
+WORKDIR /app
+
+# Install and activate the latest Node.js LTS version
+RUN pnpm env use --global lts
+
+# Copy dependency files to cache the package installation layer
+COPY frontend/gomoku/package.json frontend/gomoku/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# Copy the rest of the application code and build
+COPY frontend/gomoku ./
+RUN pnpm build
+
+
+# Stage 3: Build Caddy with the custom rate-limiting plugin
+FROM caddy:2-builder AS caddy-builder
+RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+
+
+# Stage 4: Final assembly of Caddy server with static files
+FROM caddy:2-alpine
+
+# Replace the stock Caddy binary with our custom binary compiled with rate-limiting support
+COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
+
+# Copy Caddy configuration file
+COPY deployment/Caddyfile /etc/caddy/Caddyfile
+
+# Copy Lobby static assets to the default root directory (/srv)
+COPY --from=lobby-builder /app/dist /srv
+
+# Copy Gomoku static assets to the sub-folder (/srv/gomoku) to match /gomoku routing base
+COPY --from=gomoku-builder /app/dist /srv/gomoku
+
+# Expose HTTP port
+EXPOSE 80

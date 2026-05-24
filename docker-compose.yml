@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: crystal-games-backend
+    restart: unless-stopped
+    networks:
+      - crystal-games
+
+  caddy:
+    build:
+      context: .
+      dockerfile: ./deployment/Dockerfile.caddy
+    container_name: crystal-games-frontend
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - crystal-games
+
+networks:
+  crystal-games:
+    name: crystal-games
+    driver: bridge

@@ -1,0 +1,18 @@
+# Build context exclusions
+.git
+.gitignore
+README.md
+LICENSE
+
+# Node / Frontend exclusions
+**/node_modules
+**/dist
+**/.vscode
+**/.prettierrc
+**/.env*
+**/*.log
+
+# Go / Backend exclusions
+backend/bin
+backend/game-server
+backend/.idea

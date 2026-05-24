@@ -1,0 +1,57 @@
+{
+    # Global options - Register the execution order of the custom rate_limit directive
+    order rate_limit before reverse_proxy
+    order rate_limit before file_server
+}
+
+:80 {
+    # Compress all textual responses automatically
+    encode gzip zstd
+
+    # IP-based rate limiting rules
+    rate_limit {
+        # Zone 1: Rate limit standard API calls (/api/*) to 60 requests per minute per client IP
+        zone api_limit {
+            match {
+                path /api/*
+            }
+            key {http.request.remote.ip}
+            events 60
+            window 1m
+        }
+
+        # Zone 2: Rate limit WebSocket upgrades (/ws/*) to 15 connection handshakes per minute per client IP
+        zone ws_limit {
+            match {
+                path /ws/*
+            }
+            key {http.request.remote.ip}
+            events 15
+            window 1m
+        }
+    }
+
+    # Reverse proxy backend REST APIs to the backend Go service
+    handle /api/* {
+        reverse_proxy backend:8080
+    }
+
+    # Reverse proxy backend WebSockets to the backend Go service
+    handle /ws/* {
+        reverse_proxy backend:8080
+    }
+
+    # Serve the Gomoku game client (Vue Single Page Application)
+    handle /gomoku* {
+        root * /srv
+        file_server
+        try_files {path} {path}/ /gomoku/index.html
+    }
+
+    # Serve the Lobby client (Vue Single Page Application) - Default fallback route
+    handle {
+        root * /srv
+        file_server
+        try_files {path} {path}/ /index.html
+    }
+}
