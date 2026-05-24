@@ -320,7 +320,7 @@ const isLastMove = (r: number, c: number) => {
             <UCard
               v-for="room in state.rooms"
               :key="room.id"
-              class="hover:shadow-xl hover:border-indigo-200 transition-all duration-300 cursor-pointer border border-slate-100 rounded-2xl flex flex-col justify-between"
+              class="hover:shadow-xl hover:border-emerald-200 transition-all duration-300 cursor-pointer border border-slate-100 rounded-2xl flex flex-col justify-between"
               @click="state.joinRoom(room)"
             >
               <template #header>
@@ -487,19 +487,19 @@ const isLastMove = (r: number, c: number) => {
                   <div class="space-y-2 text-xs font-semibold text-slate-600">
                     <div class="flex justify-between">
                       <span>观战自动补位：</span>
-                      <span class="text-indigo-600">
+                      <span class="text-emerald-600">
                         {{ state.activeRoom.value?.config?.autoJoinSpectator ? '开启' : '关闭' }}
                       </span>
                     </div>
                     <div class="flex justify-between">
                       <span>聊天区：</span>
-                      <span class="text-indigo-600">
+                      <span class="text-emerald-600">
                         {{ state.activeRoom.value?.config?.disableChat ? '禁用' : '启用' }}
                       </span>
                     </div>
                     <div class="flex justify-between">
                       <span>执子分配：</span>
-                      <span class="text-indigo-600">
+                      <span class="text-emerald-600">
                         {{
                           state.activeRoom.value?.config?.colorMode === 'random'
                             ? '随机分配'
@@ -623,7 +623,7 @@ const isLastMove = (r: number, c: number) => {
                       :class="[
                         'flex-1 min-w-0 grid grid-cols-[auto_1fr] gap-x-1.5 sm:gap-x-2 gap-y-1 items-center p-2 sm:p-3 rounded-2xl border transition-all duration-300',
                         state.turn.value === 'black' && state.gameStatus.value === 'playing'
-                          ? 'border-indigo-500 bg-indigo-50/30 ring-2 ring-indigo-500/20 shadow-sm'
+                          ? 'border-slate-700 bg-slate-100/30 ring-2 ring-slate-700/20 shadow-sm'
                           : 'border-slate-200 bg-slate-50/50 shadow-sm',
                         isWhiteSelf ? 'order-3' : 'order-1'
                       ]"
@@ -781,7 +781,7 @@ const isLastMove = (r: number, c: number) => {
                           msg.isSystem
                             ? 'self-center max-w-[90%] text-xs italic bg-slate-100 text-slate-500 rounded-xl py-1 border-0 shadow-none'
                             : msg.senderName === state.nickname.value
-                              ? 'self-end bg-indigo-600 text-white rounded-tr-none'
+                              ? 'self-end bg-emerald-600 text-white rounded-tr-none'
                               : 'self-start bg-white text-slate-800 border border-slate-100 rounded-tl-none'
                         ]"
                       >
@@ -879,7 +879,7 @@ const isLastMove = (r: number, c: number) => {
                       "
                       size="md"
                       class="font-bold rounded-xl shadow-md"
-                      :class="[state.gameStatus.value === 'playing' ? 'shadow-emerald-50' : 'shadow-indigo-50']"
+                      :class="[state.gameStatus.value === 'playing' ? 'shadow-emerald-50' : 'shadow-slate-100']"
                       :disabled="
                         state.simulationRole.value === 'spectator' ||
                         state.gameStatus.value === 'playing'
@@ -929,7 +929,7 @@ const isLastMove = (r: number, c: number) => {
           class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] pointer-events-none select-none"
         >
           <div
-            class="bg-indigo-600/90 text-white px-8 py-5 rounded-3xl shadow-2xl text-2xl font-black tracking-wider border border-indigo-400/30 scale-100 transform transition-all duration-300 flex flex-col items-center gap-2"
+            class="bg-slate-800/95 text-white px-8 py-5 rounded-3xl shadow-2xl text-2xl font-black tracking-wider border border-slate-700/40 scale-100 transform transition-all duration-300 flex flex-col items-center gap-2"
           >
             <span class="text-3xl animate-bounce">⚔️</span>
             <span>{{ startBannerText }}</span>
