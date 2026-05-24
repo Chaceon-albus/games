@@ -130,6 +130,7 @@ func Init() *melody.Melody {
 			return
 		}
 
+		player.DisconnectAt = time.Now()
 		room.SetPlayerOffline(uuid, true)
 
 		// If the game is waiting, remove immediately to keep room active
@@ -149,10 +150,10 @@ func Init() *melody.Melody {
 			GameManager.broadcastRoomState(room)
 			GameManager.broadcastSystemMessage(room.ID, fmt.Sprintf("【%s】连接断开！系统保留席位，等待重连（60秒内有效）...", player.Name))
 
-			go func(p *Player, r *Room) {
+			go func(p *Player, r *Room, disconnectTime time.Time) {
 				time.Sleep(60 * time.Second)
-				GameManager.handleDisconnectTimeout(p, r)
-			}(player, room)
+				GameManager.handleDisconnectTimeout(p, r, disconnectTime)
+			}(player, room, player.DisconnectAt)
 		}
 	})
 
@@ -241,17 +242,22 @@ func RegisterHandlers(api *gin.RouterGroup) {
 }
 
 // handleDisconnectTimeout executes if a player fails to reconnect within 60s
-func (m *Manager) handleDisconnectTimeout(p *Player, r *Room) {
+func (m *Manager) handleDisconnectTimeout(p *Player, r *Room, disconnectTime time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Double check if player actually reconnected
-	if p.Session != nil || !p.IsOffline {
+	// Double check if player actually reconnected, or if this check belongs to an older disconnect session
+	if !p.IsOffline || !p.DisconnectAt.Equal(disconnectTime) {
 		return
 	}
 
 	// Verify room still exists in manager
 	if _, ok := m.rooms[r.ID]; !ok {
+		return
+	}
+
+	// Verify the game is still playing and the player is actually in the room
+	if r.Status != "playing" || !r.HasPlayer(p.UUID) {
 		return
 	}
 

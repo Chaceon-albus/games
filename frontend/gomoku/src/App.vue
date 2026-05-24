@@ -33,12 +33,17 @@ watch(
     if (newStatus === 'ended' && oldStatus === 'playing') {
       const newWinner = state.winner.value
       if (newWinner) {
+        const isWinnerSelf = state.simulationRole.value === newWinner
+        const isPlayer = state.simulationRole.value !== 'spectator'
+        const toastColor = isPlayer ? (isWinnerSelf ? 'success' : 'danger') : 'success'
+        const winTitle = isPlayer ? (isWinnerSelf ? '🎉 恭喜获胜！' : '🔥 惜败，请再接再厉！') : '对局结束'
+
         toast.add({
           id: 'win-notification',
-          title: '对局结束',
+          title: winTitle,
           description: `【${getPlayerNameByColor(newWinner)}】执${newWinner === 'black' ? '黑子' : '白子'}获得胜利！`,
           icon: 'i-heroicons-trophy',
-          color: newWinner === 'black' ? 'primary' : 'secondary',
+          color: toastColor,
           duration: 5000,
           actions: [
             {
@@ -490,19 +495,19 @@ const isLastMove = (r: number, c: number) => {
                   <div class="space-y-2 text-xs font-semibold text-slate-600">
                     <div class="flex justify-between">
                       <span>观战自动补位：</span>
-                      <span class="text-emerald-600">
+                      <span :class="[state.activeRoom.value?.config?.autoJoinSpectator ? 'text-emerald-600' : 'text-slate-500']">
                         {{ state.activeRoom.value?.config?.autoJoinSpectator ? '开启' : '关闭' }}
                       </span>
                     </div>
                     <div class="flex justify-between">
                       <span>聊天区：</span>
-                      <span class="text-emerald-600">
+                      <span :class="[!state.activeRoom.value?.config?.disableChat ? 'text-emerald-600' : 'text-slate-500']">
                         {{ state.activeRoom.value?.config?.disableChat ? '禁用' : '启用' }}
                       </span>
                     </div>
                     <div class="flex justify-between">
                       <span>执子分配：</span>
-                      <span class="text-emerald-600">
+                      <span class="text-slate-800">
                         {{
                           state.activeRoom.value?.config?.colorMode === 'random'
                             ? '随机分配'
@@ -836,6 +841,7 @@ const isLastMove = (r: number, c: number) => {
                       class="font-bold rounded-xl shadow-sm border border-slate-200"
                       :disabled="
                         state.simulationRole.value === 'spectator' ||
+                        state.gameStatus.value !== 'playing' ||
                         state.history.value.length === 0 ||
                         state.activeRoom.value?.retractRequester !== '' ||
                         state.retractCooldown.value > 0

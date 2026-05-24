@@ -134,6 +134,25 @@ func (r *Room) RemovePlayer(uuid string) bool {
 	return r.Host == nil && r.Opponent == nil && len(r.Spectators) == 0
 }
 
+// HasPlayer checks if a player is in the room as an active player or spectator
+func (r *Room) HasPlayer(uuid string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.Host != nil && r.Host.UUID == uuid {
+		return true
+	}
+	if r.Opponent != nil && r.Opponent.UUID == uuid {
+		return true
+	}
+	for _, spec := range r.Spectators {
+		if spec.UUID == uuid {
+			return true
+		}
+	}
+	return false
+}
+
 // handleVacancy handles promoting other players/spectators when slots open up
 func (r *Room) handleVacancy() {
 	// 1. If Host left but Opponent is present, promote Opponent to Host
