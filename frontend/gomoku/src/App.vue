@@ -5,6 +5,56 @@ import { useGameState } from './composables/useGameState'
 // Initialize game state
 const state = useGameState()
 
+// Game start banner state & watcher
+const showStartBanner = ref(false)
+const startBannerText = ref('')
+
+watch(
+  () => state.gameStatus.value,
+  (newStatus, oldStatus) => {
+    if (newStatus === 'playing' && oldStatus !== 'playing') {
+      const selfColor = state.simulationRole.value
+      if (selfColor === 'spectator') {
+        startBannerText.value = '对局开始！当前身份为观战者'
+      } else {
+        const colorText = selfColor === 'black' ? '黑子' : '白子'
+        const turnText = selfColor === 'black' ? '先手' : '后手'
+        startBannerText.value = `对局开始！您执${colorText}（${turnText}）`
+      }
+      showStartBanner.value = true
+      setTimeout(() => {
+        showStartBanner.value = false
+      }, 1000)
+    }
+
+    if (newStatus === 'ended' && oldStatus === 'playing') {
+      const newWinner = state.winner.value
+      if (newWinner) {
+        toast.add({
+          id: 'win-notification',
+          title: '对局结束',
+          description: `【${getPlayerNameByColor(newWinner)}】执${newWinner === 'black' ? '黑子' : '白子'}获得胜利！`,
+          icon: 'i-heroicons-trophy',
+          color: newWinner === 'black' ? 'primary' : 'secondary',
+          duration: 5000,
+          actions: [
+            {
+              label: '确认',
+              onClick: () => {
+                state.resetGameState()
+              }
+            }
+          ]
+        })
+      }
+    }
+
+    if (newStatus !== 'ended') {
+      toast.remove('win-notification')
+    }
+  }
+)
+
 // Swapping helper: check if White player is the current user ("Me")
 const isWhiteSelf = computed(() => {
   return state.playerWhite.value?.name === state.nickname.value
@@ -36,13 +86,15 @@ const chatInput = ref('')
 const hoveredCell = ref<{ row: number; col: number }>({ row: 0, col: 0 })
 const isHoverActive = ref(false)
 const noTransition = ref(false)
+const showSettingsPopover = ref(false)
 
 const handleCellMouseEnter = (r: number, c: number) => {
   const isEmpty = state.board.value[r][c] === null
   const isPlaying = state.gameStatus.value === 'playing'
   const isPlayer = state.simulationRole.value !== 'spectator'
+  const isMyTurn = state.turn.value === state.simulationRole.value
 
-  if (isEmpty && isPlaying && isPlayer) {
+  if (isEmpty && isPlaying && isPlayer && isMyTurn) {
     if (!isHoverActive.value) {
       noTransition.value = true
       hoveredCell.value = { row: r, col: c }
@@ -81,39 +133,6 @@ watch(
   }
 )
 
-// Symmetrical Nuxt UI Toast alert triggered by state.winner
-watch(
-  () => state.winner.value,
-  newWinner => {
-    if (newWinner) {
-      toast.add({
-        id: 'win-notification',
-        title: '对局结束',
-        description: `【${getPlayerNameByColor(newWinner)}】执${newWinner === 'black' ? '黑子' : '白子'}获得胜利！`,
-        icon: 'i-heroicons-trophy',
-        color: newWinner === 'black' ? 'primary' : 'secondary',
-        duration: 5000, // Auto-close after 5 seconds
-        'onUpdate:open': (open: boolean) => {
-          if (!open) {
-            state.resetGameState()
-          }
-        },
-        actions: [
-          {
-            label: '确认',
-            onClick: () => {
-              state.resetGameState()
-            }
-          }
-        ]
-      })
-    } else {
-      // Clear toast notification upon board reset
-      toast.remove('win-notification')
-    }
-  }
-)
-
 // Trigger handlers
 const handleLogin = () => {
   if (loginInput.value.trim()) {
@@ -125,6 +144,13 @@ const handleCreateRoom = () => {
   if (newRoomInput.value.trim()) {
     state.createRoom(newRoomInput.value)
     newRoomInput.value = ''
+  } else {
+    toast.add({
+      title: '提示',
+      description: '请输入要创建的房间名称！',
+      color: 'danger',
+      icon: 'i-heroicons-exclamation-triangle'
+    })
   }
 }
 
@@ -211,7 +237,7 @@ const isLastMove = (r: number, c: number) => {
                   icon="i-heroicons-user"
                   placeholder="请输入您的玩家昵称"
                   required
-                  maxlength="15"
+                  maxlength="20"
                   autocomplete="off"
                   class="rounded-xl w-full"
                 />
@@ -336,6 +362,149 @@ const isLastMove = (r: number, c: number) => {
           v-else-if="state.currentView.value === 'room'"
           class="space-y-6 flex-grow flex flex-col justify-center"
         >
+          <!-- Room Header with Settings -->
+          <div
+            class="flex items-center justify-between flex-wrap gap-4 border-b border-slate-400/40 pb-4 mb-2 z-10 relative"
+          >
+            <div class="space-y-1">
+              <h2 class="text-2xl font-extrabold text-slate-800 tracking-tight">
+                房间：{{ state.activeRoom.value?.name }}
+              </h2>
+              <p class="text-sm text-slate-600">
+                房间ID: {{ state.activeRoom.value?.id }} | 状态:
+                <span class="font-bold text-indigo-600">
+                  {{ state.gameStatus.value === 'playing' ? '对局中' : '等待中' }}
+                </span>
+              </p>
+            </div>
+
+            <!-- Settings Popover for Host (Gear Icon) -->
+            <div
+              v-if="state.activeRoom.value?.host?.name === state.nickname.value"
+              class="relative z-30"
+            >
+              <UButton
+                color="neutral"
+                variant="ghost"
+                icon="i-heroicons-cog-6-tooth"
+                size="md"
+                class="rounded-full hover:bg-slate-200/50 transition-colors"
+                @click="showSettingsPopover = !showSettingsPopover"
+              />
+
+              <!-- Floating Settings Popup Card -->
+              <transition name="popover-fade">
+                <div
+                  v-if="showSettingsPopover"
+                  class="absolute right-0 mt-2 w-60 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200 shadow-2xl p-4 space-y-4"
+                >
+                  <h4
+                    class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-1.5"
+                  >
+                    ⚙️ 房间设置
+                  </h4>
+
+                  <div class="space-y-3">
+                    <!-- Auto Join Spectator Toggle -->
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-semibold text-slate-700">观战自动补位</span>
+                      <USwitch
+                        :model-value="state.activeRoom.value?.config?.autoJoinSpectator"
+                        @update:model-value="
+                          (val: boolean) =>
+                            state.updateRoomConfig({
+                              ...state.activeRoom.value?.config,
+                              autoJoinSpectator: val
+                            })
+                        "
+                      />
+                    </div>
+
+                    <!-- Disable Chat Toggle -->
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-semibold text-slate-700">禁用聊天区</span>
+                      <USwitch
+                        :model-value="state.activeRoom.value?.config?.disableChat"
+                        @update:model-value="
+                          (val: boolean) =>
+                            state.updateRoomConfig({
+                              ...state.activeRoom.value?.config,
+                              disableChat: val
+                            })
+                        "
+                      />
+                    </div>
+
+                    <!-- Color Mode Selector Toggle -->
+                    <div class="flex items-center justify-between pt-1 border-t border-slate-100">
+                      <span class="text-xs font-semibold text-slate-700">随机执子分配</span>
+                      <USwitch
+                        :model-value="state.activeRoom.value?.config?.colorMode === 'random'"
+                        @update:model-value="
+                          (val: boolean) =>
+                            state.updateRoomConfig({
+                              ...state.activeRoom.value?.config,
+                              colorMode: val ? 'random' : 'alternating'
+                            })
+                        "
+                      />
+                    </div>
+                  </div>
+                </div>
+              </transition>
+            </div>
+
+            <!-- Settings Popover for Non-Hosts (Info Icon) -->
+            <div v-else class="relative z-30">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                icon="i-heroicons-information-circle"
+                size="md"
+                class="rounded-full hover:bg-slate-200/50 transition-colors"
+                @click="showSettingsPopover = !showSettingsPopover"
+              />
+
+              <!-- Floating Settings Display Card -->
+              <transition name="popover-fade">
+                <div
+                  v-if="showSettingsPopover"
+                  class="absolute right-0 mt-2 w-52 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200 shadow-2xl p-4 space-y-3"
+                >
+                  <h4
+                    class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-1.5"
+                  >
+                    当前房间设置
+                  </h4>
+                  <div class="space-y-2 text-xs font-semibold text-slate-600">
+                    <div class="flex justify-between">
+                      <span>观战自动补位：</span>
+                      <span class="text-indigo-600">
+                        {{ state.activeRoom.value?.config?.autoJoinSpectator ? '开启' : '关闭' }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span>聊天区：</span>
+                      <span class="text-indigo-600">
+                        {{ state.activeRoom.value?.config?.disableChat ? '禁用' : '启用' }}
+                      </span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span>执子分配：</span>
+                      <span class="text-indigo-600">
+                        {{
+                          state.activeRoom.value?.config?.colorMode === 'random'
+                            ? '随机分配'
+                            : '黑白轮换'
+                        }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </transition>
+            </div>
+          </div>
+
           <section class="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
             <!-- Left Column: The Flat Go Board -->
             <div class="xl:col-span-7 flex flex-col items-center">
@@ -460,8 +629,16 @@ const isLastMove = (r: number, c: number) => {
                         size="sm"
                         class="flex-shrink-0"
                       />
-                      <span class="text-sm font-bold text-slate-800 truncate">
+                      <span
+                        class="text-sm font-bold text-slate-800 truncate flex items-center gap-1"
+                      >
                         {{ state.playerBlack.value?.name || '等待加入...' }}
+                        <span
+                          v-if="state.playerBlack.value?.isOffline"
+                          class="text-[10px] font-extrabold text-red-500 bg-red-100 px-1.5 py-0.5 rounded-full border border-red-200 animate-pulse"
+                        >
+                          离线
+                        </span>
                       </span>
                       <span
                         class="inline-block w-3 h-3 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-950 shadow-sm justify-self-center"
@@ -522,8 +699,16 @@ const isLastMove = (r: number, c: number) => {
                         size="sm"
                         class="flex-shrink-0"
                       />
-                      <span class="text-sm font-bold text-slate-800 truncate">
+                      <span
+                        class="text-sm font-bold text-slate-800 truncate flex items-center gap-1"
+                      >
                         {{ state.playerWhite.value?.name || '等待加入...' }}
+                        <span
+                          v-if="state.playerWhite.value?.isOffline"
+                          class="text-[10px] font-extrabold text-red-500 bg-red-100 px-1.5 py-0.5 rounded-full border border-red-200 animate-pulse"
+                        >
+                          离线
+                        </span>
                       </span>
                       <span
                         class="inline-block w-3 h-3 rounded-full bg-gradient-to-br from-slate-50 to-slate-200 border border-slate-300 shadow-sm justify-self-center"
@@ -574,7 +759,7 @@ const isLastMove = (r: number, c: number) => {
 
                   <!-- Live Chat Box Container -->
                   <div
-                    class="hidden md:flex flex-col border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/50 flex-grow min-h-0"
+                    class="hidden md:flex flex-col border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/50 flex-grow min-h-0 h-[320px] xl:h-auto"
                   >
                     <div
                       ref="chatFeedRef"
@@ -640,11 +825,17 @@ const isLastMove = (r: number, c: number) => {
                       class="font-bold rounded-xl shadow-sm border border-slate-200"
                       :disabled="
                         state.simulationRole.value === 'spectator' ||
-                        state.history.value.length === 0
+                        state.history.value.length === 0 ||
+                        state.activeRoom.value?.retractRequester !== '' ||
+                        state.retractCooldown.value > 0
                       "
                       @click="state.retractMove"
                     >
-                      悔棋
+                      {{
+                        state.retractCooldown.value > 0
+                          ? `悔棋 (${state.retractCooldown.value}s)`
+                          : '悔棋'
+                      }}
                     </UButton>
 
                     <!-- 认输 -->
@@ -653,7 +844,7 @@ const isLastMove = (r: number, c: number) => {
                       color="danger"
                       variant="solid"
                       size="md"
-                      class="font-bold rounded-xl shadow-sm shadow-red-50"
+                      class="font-bold rounded-xl shadow-sm shadow-red-50 hover:bg-red-600 active:bg-red-700 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
                       :disabled="
                         state.simulationRole.value === 'spectator' ||
                         state.gameStatus.value !== 'playing'
@@ -719,50 +910,105 @@ const isLastMove = (r: number, c: number) => {
               </UCard>
             </div>
           </section>
-
-          <!-- Role switcher centered at the bottom, spanning across the page -->
-          <div class="flex justify-center w-full">
-            <UButtonGroup
-              class="shadow-md border border-slate-100 rounded-full p-1 bg-white/80 backdrop-blur-md"
-            >
-              <UButton
-                :variant="state.simulationRole.value === 'black' ? 'solid' : 'ghost'"
-                color="primary"
-                size="sm"
-                class="rounded-full font-bold px-5"
-                @click="state.simulationRole.value = 'black'"
-              >
-                <span
-                  class="inline-block w-2.5 h-2.5 rounded-full bg-black ring-1 ring-white/50 mr-2"
-                ></span>
-                执黑玩家
-              </UButton>
-              <UButton
-                :variant="state.simulationRole.value === 'white' ? 'solid' : 'ghost'"
-                color="neutral"
-                size="sm"
-                class="rounded-full font-bold px-5"
-                @click="state.simulationRole.value = 'white'"
-              >
-                <span
-                  class="inline-block w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-300 mr-2"
-                ></span>
-                执白玩家
-              </UButton>
-              <UButton
-                :variant="state.simulationRole.value === 'spectator' ? 'solid' : 'ghost'"
-                color="success"
-                size="sm"
-                class="rounded-full font-bold px-5"
-                @click="state.simulationRole.value = 'spectator'"
-              >
-                <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 mr-2"></span>
-                局外人
-              </UButton>
-            </UButtonGroup>
-          </div>
         </div>
       </main>
+
+      <!-- Game Start Screen Overlay Banner (1.5s auto fade out) -->
+      <transition name="banner-fade">
+        <div
+          v-if="showStartBanner"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] pointer-events-none select-none"
+        >
+          <div
+            class="bg-indigo-600/90 text-white px-8 py-5 rounded-3xl shadow-2xl text-2xl font-black tracking-wider border border-indigo-400/30 scale-100 transform transition-all duration-300 flex flex-col items-center gap-2"
+          >
+            <span class="text-3xl animate-bounce">⚔️</span>
+            <span>{{ startBannerText }}</span>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Retract Consent Dialog (Custom CSS Modal) -->
+      <transition name="modal-fade">
+        <div
+          v-if="state.showRetractDialog.value"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 select-none"
+        >
+          <div
+            class="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-6 transform scale-100 transition-all duration-300"
+          >
+            <div class="flex items-center gap-3">
+              <span class="text-3xl">🔄</span>
+              <div>
+                <h3 class="font-extrabold text-lg text-slate-800">对方请求悔棋</h3>
+                <p class="text-xs text-slate-400">请选择是否同意对方的悔棋申请</p>
+              </div>
+            </div>
+
+            <div
+              class="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-semibold text-slate-700 leading-relaxed text-center"
+            >
+              <span class="text-indigo-600 font-extrabold">
+                {{ state.retractRequesterName.value }}
+              </span>
+              请求撤回上一步落子。
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <button
+                class="w-full py-3 rounded-2xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all shadow-sm cursor-pointer"
+                @click="state.respondRetract(false)"
+              >
+                拒绝
+              </button>
+              <button
+                class="w-full py-3 rounded-2xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md shadow-indigo-100 cursor-pointer"
+                @click="state.respondRetract(true)"
+              >
+                同意悔棋
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
     </div>
   </UApp>
 </template>
+
+<style>
+/* Game Start Banner Transition */
+.banner-fade-enter-active,
+.banner-fade-leave-active {
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+.banner-fade-enter-from,
+.banner-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+/* Retract Modal Transition */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+/* Popover Fade Transition */
+.popover-fade-enter-active,
+.popover-fade-leave-active {
+  transition:
+    opacity 0.18s ease-out,
+    transform 0.18s ease-out;
+}
+.popover-fade-enter-from,
+.popover-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+</style>

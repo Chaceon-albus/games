@@ -1,71 +1,32 @@
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted, computed } from 'vue'
 import type { Player, Room, ChatMessage, Move } from '../types'
 
 export function useGameState() {
-  // --- USER PROFILE & NAVIGATION ---
+  // --- ENDPOINTS RESOLVER ---
+  const isDev = import.meta.env.DEV
+  const host = window.location.hostname || 'localhost'
+  const currentPort = window.location.port
+
+  // If already loaded through the Go server (port 8080), use the same origin to prevent CORS/host mismatch.
+  // Otherwise, if accessing the Vite dev server directly (e.g. port 5173), target port 8080 on the same host.
+  const baseHttpUrl =
+    isDev && currentPort !== '8080' ? `http://${host}:8080` : window.location.origin
+
+  const baseWsUrl =
+    isDev && currentPort !== '8080'
+      ? `ws://${host}:8080`
+      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
+
+  // --- STATE VARIABLES ---
   const nickname = ref('')
   const currentView = ref<'login' | 'lobby' | 'room'>('login')
+  const isConnected = ref(false)
 
-  onMounted(() => {
-    const saved = localStorage.getItem('gomoku_nickname')
-    if (saved) {
-      nickname.value = saved
-      currentView.value = 'lobby'
-    } else {
-      const randNum = Math.floor(100 + Math.random() * 900)
-      nickname.value = `五子棋玩家#${randNum}`
-    }
-  })
+  // Lobby Rooms
+  const rooms = reactive<Room[]>([])
+  const activeRoom = ref<any | null>(null)
 
-  const saveNickname = (name: string) => {
-    if (!name.trim()) return
-    nickname.value = name.trim()
-    localStorage.setItem('gomoku_nickname', nickname.value)
-    currentView.value = 'lobby'
-  }
-
-  // --- LOBBY ROOMS STATE ---
-  const rooms = reactive<Room[]>([
-    {
-      id: '1',
-      name: '桃源仙境 (初级对弈)',
-      status: 'waiting',
-      playerCount: 1,
-      maxPlayers: 2,
-      creatorName: '棋圣小张'
-    },
-    {
-      id: '2',
-      name: '竹林小轩 (切磋棋艺)',
-      status: 'playing',
-      playerCount: 2,
-      maxPlayers: 2,
-      creatorName: '五子豪杰'
-    },
-    {
-      id: '3',
-      name: '水晶王座 (高手对决)',
-      status: 'full',
-      playerCount: 2,
-      maxPlayers: 2,
-      creatorName: '智勇双全'
-    },
-    {
-      id: '4',
-      name: '棋仙洞府 (观战专区)',
-      status: 'playing',
-      playerCount: 2,
-      maxPlayers: 2,
-      creatorName: '世外高人'
-    }
-  ])
-
-  const activeRoom = ref<Room | null>(null)
-
-  // --- SIMULATION ROLE FOR TESTING ---
-  const simulationRole = ref<'black' | 'white' | 'spectator'>('black')
-
-  // --- ACTIVE ROOM GAMEPLAY STATE ---
+  // Gameplay State (Mapped dynamically from server Room state)
   const boardSize = 15
   const board = ref<(null | 'black' | 'white')[][]>(
     Array(boardSize)
@@ -78,7 +39,7 @@ export function useGameState() {
   const winner = ref<'black' | 'white' | null>(null)
   const winningLine = ref<{ row: number; col: number }[]>([])
 
-  // Room Players (Mocked for multiplayer feeling)
+  // Player Slots
   const playerBlack = ref<Player | null>(null)
   const playerWhite = ref<Player | null>(null)
   const spectators = ref<Player[]>([])
@@ -86,59 +47,292 @@ export function useGameState() {
   // Chat Feed
   const chatMessages = ref<ChatMessage[]>([])
 
-  // --- CORE SYSTEM HOOKS (WebSocket-Ready) ---
+  // Connection Ref
+  let ws: WebSocket | null = null
+  let reconnectTimer: any = null
+  let reconnectDelay = 1000
 
-  const joinRoom = (room: Room) => {
-    activeRoom.value = room
-    currentView.value = 'room'
-    resetGameState()
+  // Simulation Role Ref for backwards compatibility with UI switcher
+  const simulationRole = ref<'black' | 'white' | 'spectator'>('spectator')
+  const retractCooldown = ref(0)
 
-    chatMessages.value = [
-      {
-        id: 'sys1',
-        senderName: '系统',
-        text: `欢迎来到房间【${room.name}】！`,
-        timestamp: getFormattedTime(),
-        isSystem: true
-      },
-      {
-        id: 'sys2',
-        senderName: '系统',
-        text: '提示：您可以点击顶部切换身份来测试对战或观战特性。',
-        timestamp: getFormattedTime(),
-        isSystem: true
+  // --- REST AUTHENTICATION ---
+  onMounted(async () => {
+    const savedUUID = localStorage.getItem('gomoku_uuid')
+    const savedName = localStorage.getItem('gomoku_nickname')
+    if (savedUUID && savedName) {
+      try {
+        const res = await fetch(`${baseHttpUrl}/api/v1/gomoku/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uuid: savedUUID })
+        })
+        const data = await res.json()
+        if (data.valid) {
+          nickname.value = data.nickname
+          currentView.value = 'lobby'
+          connectWebSocket(savedUUID)
+        } else {
+          clearLocalStorage()
+        }
+      } catch (e) {
+        // Network offline fallback
+        nickname.value = savedName
+        currentView.value = 'lobby'
+        connectWebSocket(savedUUID)
       }
-    ]
-  }
-
-  const createRoom = (roomName: string) => {
-    if (!roomName.trim()) return
-    const newRoom: Room = {
-      id: String(rooms.length + 1),
-      name: roomName.trim(),
-      status: 'waiting',
-      playerCount: 1,
-      maxPlayers: 2,
-      creatorName: nickname.value
+    } else {
+      const randNum = Math.floor(100 + Math.random() * 900)
+      nickname.value = `五子棋玩家#${randNum}`
     }
-    rooms.unshift(newRoom)
-    joinRoom(newRoom)
-  }
+  })
 
-  const leaveRoom = () => {
-    activeRoom.value = null
-    currentView.value = 'lobby'
-    resetGameState()
+  const saveNickname = async (name: string) => {
+    if (!name.trim()) return
+    let length = 0
+    let truncated = ''
+    for (let i = 0; i < name.length; i++) {
+      const char = name[i]
+      const unit = char.charCodeAt(0) > 127 ? 2 : 1
+      if (length + unit > 20) {
+        break
+      }
+      truncated += char
+      length += unit
+    }
+    const finalName = truncated.trim()
+    if (!finalName) return
+
+    try {
+      const res = await fetch(`${baseHttpUrl}/api/v1/gomoku/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname: finalName })
+      })
+      const data = await res.json()
+      if (data.uuid) {
+        nickname.value = data.nickname
+        localStorage.setItem('gomoku_uuid', data.uuid)
+        localStorage.setItem('gomoku_nickname', data.nickname)
+        currentView.value = 'lobby'
+        connectWebSocket(data.uuid)
+      }
+    } catch (e) {
+      alert('注册玩家失败，请检查服务器连接')
+    }
   }
 
   const logout = () => {
-    localStorage.removeItem('gomoku_nickname')
-    const randNum = Math.floor(100 + Math.random() * 900)
-    nickname.value = `五子棋玩家#${randNum}`
+    clearLocalStorage()
+    nickname.value = `五子棋玩家#${Math.floor(100 + Math.random() * 900)}`
     currentView.value = 'login'
+    if (ws) {
+      ws.close()
+      ws = null
+    }
   }
 
-  const resetGameState = () => {
+  const clearLocalStorage = () => {
+    localStorage.removeItem('gomoku_uuid')
+    localStorage.removeItem('gomoku_nickname')
+  }
+
+  // --- WEBSOCKET CLIENT ---
+  const pendingActions: Array<() => void> = []
+
+  const connectWebSocket = (uuid: string) => {
+    if (ws) return
+
+    ws = new WebSocket(`${baseWsUrl}/ws/gomoku?uuid=${uuid}`)
+
+    ws.onopen = () => {
+      isConnected.value = true
+      reconnectDelay = 1000
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+
+      // Clear any disconnect warnings
+      chatMessages.value = chatMessages.value.filter(msg => !msg.text.includes('连接已断开'))
+
+      // Flush pending actions
+      while (pendingActions.length > 0) {
+        const action = pendingActions.shift()
+        if (action) action()
+      }
+    }
+
+    ws.onclose = () => {
+      isConnected.value = false
+      ws = null
+
+      const savedUUID = localStorage.getItem('gomoku_uuid')
+      if (savedUUID) {
+        pushSystemMessage('连接已断开，正在尝试重新连接...')
+        reconnectTimer = setTimeout(() => {
+          reconnectDelay = Math.min(reconnectDelay * 2, 16000)
+          connectWebSocket(savedUUID)
+        }, reconnectDelay)
+      }
+    }
+
+    ws.onerror = () => {
+      if (ws) ws.close()
+    }
+
+    ws.onmessage = event => {
+      try {
+        const msg = JSON.parse(event.data)
+        handleServerMessage(msg)
+      } catch (e) {
+        console.error('Failed to parse WebSocket message:', e)
+      }
+    }
+  }
+
+  const sendWsAction = (action: string, data?: any) => {
+    const send = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            action,
+            data: data || undefined
+          })
+        )
+      }
+    }
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      send()
+    } else {
+      pendingActions.push(send)
+      const savedUUID = localStorage.getItem('gomoku_uuid')
+      if (savedUUID) {
+        connectWebSocket(savedUUID)
+      }
+    }
+  }
+
+  // --- SERVER INCOMING ACTION HANDLER ---
+  const handleServerMessage = (msg: { type: string; data: any }) => {
+    switch (msg.type) {
+      case 'room_list':
+        rooms.splice(0, rooms.length, ...msg.data)
+        break
+
+      case 'room_state':
+        syncRoomState(msg.data)
+        break
+
+      case 'chat_message':
+        chatMessages.value.push(msg.data)
+        break
+
+      case 'error_message':
+        pushSystemMessage(`⚠️ 错误提示: ${msg.data.message}`)
+        break
+    }
+  }
+
+  // Sync server room state to reactive refs
+  const syncRoomState = (room: any) => {
+    activeRoom.value = room
+
+    if (!room) {
+      currentView.value = 'lobby'
+      resetGameStateVariables()
+      return
+    }
+
+    currentView.value = 'room'
+    history.value = room.history || []
+    turn.value = room.turn
+
+    // Map status
+    if (room.status === 'playing') {
+      gameStatus.value = 'playing'
+    } else if (room.status === 'waiting') {
+      if (room.winner !== '') {
+        gameStatus.value = 'ended'
+      } else {
+        gameStatus.value = room.host && room.opponent ? 'ready' : 'idle'
+      }
+    }
+
+    winner.value = room.winner === '' ? null : room.winner
+    winningLine.value = room.winningLine || []
+
+    // Rebuild board from history
+    const newBoard = Array(boardSize)
+      .fill(null)
+      .map(() => Array(boardSize).fill(null))
+    history.value.forEach(move => {
+      newBoard[move.row][move.col] = move.player
+    })
+    board.value = newBoard
+
+    // Sync Players & Spectators
+    const host = room.host
+    const opponent = room.opponent
+
+    let pBlack: Player | null = null
+    let pWhite: Player | null = null
+    let activeRole: 'black' | 'white' | 'spectator' = 'spectator'
+
+    if (host) {
+      const isHostBlack = room.hostColor === 'black'
+      const hostPlayer: Player = {
+        id: host.name === nickname.value ? 'user' : 'host',
+        name: host.name,
+        role: 'player',
+        color: room.hostColor,
+        isReady: host.isReady,
+        isOffline: host.isOffline
+      }
+      if (host.name === nickname.value) {
+        activeRole = room.hostColor
+      }
+      if (isHostBlack) pBlack = hostPlayer
+      else pWhite = hostPlayer
+    }
+
+    if (opponent) {
+      const isOpponentBlack = room.opponentColor === 'black'
+      const opponentPlayer: Player = {
+        id: opponent.name === nickname.value ? 'user' : 'opponent',
+        name: opponent.name,
+        role: 'player',
+        color: room.opponentColor,
+        isReady: opponent.isReady,
+        isOffline: opponent.isOffline
+      }
+      if (opponent.name === nickname.value) {
+        activeRole = room.opponentColor
+      }
+      if (isOpponentBlack) pBlack = opponentPlayer
+      else pWhite = opponentPlayer
+    }
+
+    playerBlack.value = pBlack
+    playerWhite.value = pWhite
+
+    spectators.value = (room.spectators || []).map((spec: any) => {
+      if (spec.name === nickname.value) {
+        activeRole = 'spectator'
+      }
+      return {
+        id: spec.name === nickname.value ? 'user' : 'spectator',
+        name: spec.name,
+        role: 'spectator',
+        color: null,
+        isReady: false,
+        isOffline: spec.isOffline
+      }
+    })
+
+    // Set simulation role for UI binding compatibility
+    simulationRole.value = activeRole
+  }
+
+  const resetGameStateVariables = () => {
     board.value = Array(boardSize)
       .fill(null)
       .map(() => Array(boardSize).fill(null))
@@ -147,103 +341,45 @@ export function useGameState() {
     gameStatus.value = 'idle'
     winner.value = null
     winningLine.value = []
-
-    if (!activeRoom.value) return
-
-    if (simulationRole.value === 'black') {
-      playerBlack.value = {
-        id: 'user',
-        name: nickname.value,
-        role: 'player',
-        color: 'black',
-        isReady: false
-      }
-      playerWhite.value = {
-        id: 'mock_white',
-        name: '水晶棋灵 (AI)',
-        role: 'player',
-        color: 'white',
-        isReady: true
-      }
-      spectators.value = [
-        { id: 'spec1', name: '观棋居士', role: 'spectator', color: null, isReady: false },
-        { id: 'spec2', name: '吃瓜群众', role: 'spectator', color: null, isReady: false }
-      ]
-    } else if (simulationRole.value === 'white') {
-      playerBlack.value = {
-        id: 'mock_black',
-        name: '九段高手',
-        role: 'player',
-        color: 'black',
-        isReady: true
-      }
-      playerWhite.value = {
-        id: 'user',
-        name: nickname.value,
-        role: 'player',
-        color: 'white',
-        isReady: false
-      }
-      spectators.value = [
-        { id: 'spec1', name: '旁观法师', role: 'spectator', color: null, isReady: false }
-      ]
-    } else {
-      playerBlack.value = {
-        id: 'mock_black',
-        name: '九段高手',
-        role: 'player',
-        color: 'black',
-        isReady: true
-      }
-      playerWhite.value = {
-        id: 'mock_white',
-        name: '水晶棋灵 (AI)',
-        role: 'player',
-        color: 'white',
-        isReady: true
-      }
-      spectators.value = [
-        { id: 'user', name: nickname.value, role: 'spectator', color: null, isReady: false },
-        { id: 'spec2', name: '吃瓜群众', role: 'spectator', color: null, isReady: false }
-      ]
-      gameStatus.value = 'playing'
-    }
+    playerBlack.value = null
+    playerWhite.value = null
+    spectators.value = []
+    chatMessages.value = []
   }
 
-  // Monitor role switching to update mocked players
-  watch(simulationRole, () => {
-    resetGameState()
-    pushSystemMessage(
-      `您已成功切换身份为：${simulationRole.value === 'black' ? '执黑子玩家' : simulationRole.value === 'white' ? '执白子玩家' : '观战者（禁言）'}`
-    )
-  })
+  const resetGameState = () => {
+    // Left as a no-op / state reset triggers automatically on room state syncs
+  }
+
+  // --- ACTIONS SENDERS ---
+  const createRoom = (roomName: string) => {
+    if (!roomName.trim()) return
+    sendWsAction('create_room', {
+      name: roomName.trim(),
+      config: {
+        autoJoinSpectator: false,
+        disableChat: false,
+        colorMode: 'alternating'
+      }
+    })
+  }
+
+  const joinRoom = (room: Room) => {
+    sendWsAction('join_room', { roomId: room.id })
+  }
+
+  const leaveRoom = () => {
+    sendWsAction('leave_room')
+    activeRoom.value = null
+    currentView.value = 'lobby'
+    resetGameStateVariables()
+  }
 
   const toggleReady = () => {
-    if (simulationRole.value === 'spectator') return
-
-    if (simulationRole.value === 'black' && playerBlack.value) {
-      playerBlack.value.isReady = !playerBlack.value.isReady
-      pushSystemMessage(
-        `玩家【${playerBlack.value.name}】已${playerBlack.value.isReady ? '准备' : '取消准备'}`
-      )
-    } else if (simulationRole.value === 'white' && playerWhite.value) {
-      playerWhite.value.isReady = !playerWhite.value.isReady
-      pushSystemMessage(
-        `玩家【${playerWhite.value.name}】已${playerWhite.value.isReady ? '准备' : '取消准备'}`
-      )
-    }
-
-    if (playerBlack.value?.isReady && playerWhite.value?.isReady) {
-      gameStatus.value = 'playing'
-      pushSystemMessage('双方准备完毕，对局正式开始！执黑子（先手）落子。')
-    }
+    sendWsAction('toggle_ready')
   }
 
-  // --- SOUND EFFECT (Web Audio API) ---
-  // Simulates a stone hitting a wooden Go board by layering:
-  //   1. Filtered noise burst  → sharp "clack" of stone impact
-  //   2. Low sine resonance    → wooden board body thud
-
+  // SOUND EFFECT FOR PLACED STONES
   let audioCtx: AudioContext | null = null
   let noiseBuffer: AudioBuffer | null = null
 
@@ -269,28 +405,22 @@ export function useGameState() {
       if (ctx.state === 'suspended') ctx.resume()
 
       const now = ctx.currentTime
-
       const masterGain = ctx.createGain()
-      masterGain.gain.setValueAtTime(0.5, now) // 设定相对音量
+      masterGain.gain.setValueAtTime(0.5, now)
       masterGain.connect(ctx.destination)
 
-      const randomFactor = Math.random() * 0.06 + 0.97 // 减小随机范围，保持音色稳定
-
-      // 320Hz左右的基频模拟“笃笃”的中低木质区
+      const randomFactor = Math.random() * 0.06 + 0.97
       const baseFreq = 320 * randomFactor
       const clickVolume = 0.3 * (Math.random() * 0.2 + 0.9)
 
-      // ==========================================
-      // 图层 1：棋子清脆的撞击声（保持硬度）
-      // ==========================================
       const playClick = (timeOffset: number, volume: number, duration: number) => {
         const noiseSource = ctx.createBufferSource()
         noiseSource.buffer = getNoiseBuffer(ctx)
 
         const filter = ctx.createBiquadFilter()
         filter.type = 'bandpass'
-        filter.frequency.setValueAtTime(3200 * randomFactor, now + timeOffset) // 更清脆
-        filter.Q.setValueAtTime(1.5, now + timeOffset) // 提高Q值，让敲击声更硬、更像实体
+        filter.frequency.setValueAtTime(3200 * randomFactor, now + timeOffset)
+        filter.Q.setValueAtTime(1.5, now + timeOffset)
 
         const gainNode = ctx.createGain()
         gainNode.gain.setValueAtTime(volume, now + timeOffset)
@@ -304,18 +434,13 @@ export function useGameState() {
         noiseSource.stop(now + timeOffset + duration)
       }
 
-      // 依然保留微回弹，但缩短主撞击时间
       playClick(0, clickVolume, 0.025)
       playClick(0.012, clickVolume * 0.3, 0.015)
 
-      // ==========================================
-      // 图层 2：棋盘的木质共振（去低频、极速衰减）
-      // ==========================================
-      // 【核心调整 2】极致缩短 decay 时间。木头对高频和极低频吸收极快，不能让它拖尾
       const resonances = [
-        { freq: baseFreq, gain: 0.2, decay: 0.04 }, // 主木质音
-        { freq: baseFreq * 1.8, gain: 0.12, decay: 0.03 }, // 泛音1
-        { freq: baseFreq * 2.6, gain: 0.06, decay: 0.02 } // 泛音2
+        { freq: baseFreq, gain: 0.2, decay: 0.04 },
+        { freq: baseFreq * 1.8, gain: 0.12, decay: 0.03 },
+        { freq: baseFreq * 2.6, gain: 0.06, decay: 0.02 }
       ]
 
       resonances.forEach(res => {
@@ -325,7 +450,6 @@ export function useGameState() {
 
         const gainNode = ctx.createGain()
         gainNode.gain.setValueAtTime(res.gain, now)
-        // 使用 exponentialRamp 极速收尾，消除任何“砰”的尾音腔调
         gainNode.gain.exponentialRampToValueAtTime(0.001, now + res.decay)
 
         osc.connect(gainNode)
@@ -335,182 +459,101 @@ export function useGameState() {
         osc.stop(now + res.decay)
       })
     } catch (e) {
-      // 静默失败
+      // Fail silently
     }
   }
 
-  // --- GAMEPLAY LOGIC ---
-
+  // Place stone triggers placement sound instantly, and pushes moves to WS
   const placeStone = (row: number, col: number) => {
     if (gameStatus.value !== 'playing') return
     if (simulationRole.value === 'spectator') return
     if (board.value[row][col] !== null) return
 
-    const currentPlayerColor = turn.value
-    board.value[row][col] = currentPlayerColor
-    history.value.push({ row, col, player: currentPlayerColor })
-
-    // Play the stone placement sound
+    // Pre-play place sound for responsive feeling
     playPlaceSound()
-
-    const winCoords = checkWin(row, col, currentPlayerColor)
-    if (winCoords) {
-      gameStatus.value = 'ended'
-      winner.value = currentPlayerColor
-      winningLine.value = winCoords
-
-      const winnerName =
-        currentPlayerColor === 'black'
-          ? playerBlack.value?.name || '黑方'
-          : playerWhite.value?.name || '白方'
-      pushSystemMessage(`【${winnerName}】达成五子相连，获得本局胜利！🎉`)
-      return
-    }
-
-    if (history.value.length === boardSize * boardSize) {
-      gameStatus.value = 'ended'
-      pushSystemMessage('棋盘已满！本局对决以平局结束。🤝')
-      return
-    }
-
-    turn.value = turn.value === 'black' ? 'white' : 'black'
+    sendWsAction('place_stone', { row, col })
   }
 
   const retractMove = () => {
     if (simulationRole.value === 'spectator') return
-    if (history.value.length === 0) return
+    if (activeRoom.value?.retractRequester) return
+    if (retractCooldown.value > 0) return
 
-    const lastMove = history.value.pop()!
-    board.value[lastMove.row][lastMove.col] = null
-    turn.value = lastMove.player
+    sendWsAction('request_retract')
 
-    if (gameStatus.value === 'ended') {
-      gameStatus.value = 'playing'
-      winner.value = null
-      winningLine.value = []
-      pushSystemMessage('已执行悔棋，对局继续！')
-    } else {
-      pushSystemMessage(`已悔棋，轮到【${turn.value === 'black' ? '黑方' : '白方'}】落子。`)
-    }
+    // Start 5-second cooldown timer
+    retractCooldown.value = 5
+    const timer = setInterval(() => {
+      retractCooldown.value--
+      if (retractCooldown.value <= 0) {
+        clearInterval(timer)
+      }
+    }, 1000)
   }
 
   const resignGame = () => {
-    if (gameStatus.value !== 'playing') return
     if (simulationRole.value === 'spectator') return
-
-    const resigningPlayer = simulationRole.value
-    const winningPlayerColor = resigningPlayer === 'black' ? 'white' : 'black'
-
-    gameStatus.value = 'ended'
-    winner.value = winningPlayerColor
-
-    const resigningName =
-      resigningPlayer === 'black' ? playerBlack.value?.name : playerWhite.value?.name
-    const winningName =
-      winningPlayerColor === 'black' ? playerBlack.value?.name : playerWhite.value?.name
-
-    pushSystemMessage(`【${resigningName}】认输。恭喜【${winningName}】获得本局胜利！🏅`)
+    sendWsAction('resign')
   }
-
-  // --- CHAT LOGIC ---
 
   const sendChat = (text: string) => {
     if (!text.trim()) return
-    if (simulationRole.value === 'spectator') return
 
+    // Add local preview to chat log instantly
     chatMessages.value.push({
       id: String(Date.now()),
       senderName: nickname.value,
       text: text.trim(),
-      timestamp: getFormattedTime()
+      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     })
 
-    simulateMockChatResponse(text.trim())
+    sendWsAction('send_chat', { text: text.trim() })
   }
+
+  // --- NEW MULTIPLAYER UTILS ---
+
+  const respondRetract = (agree: boolean) => {
+    sendWsAction('retract_respond', { agree })
+  }
+
+  const updateRoomConfig = (config: {
+    autoJoinSpectator: boolean
+    disableChat: boolean
+    colorMode: string
+  }) => {
+    sendWsAction('configure_room', { config })
+  }
+
+  // Computed properties for retract requesting dialogue
+  const retractRequesterName = computed(() => activeRoom.value?.retractRequesterName || '')
+  const showRetractDialog = computed(() => {
+    return retractRequesterName.value !== '' && retractRequesterName.value !== nickname.value
+  })
+
+  // Watch for history changes to trigger sound effect for other player's turns
+  watch(
+    () => history.value.length,
+    (newVal, oldVal) => {
+      // Play placement sound when history size increases
+      if (newVal > (oldVal || 0)) {
+        // Avoid double sounds if placed by self (as self is pre-played)
+        const lastMove = history.value[history.value.length - 1]
+        const selfColor = simulationRole.value
+        if (lastMove && lastMove.player !== selfColor) {
+          playPlaceSound()
+        }
+      }
+    }
+  )
 
   const pushSystemMessage = (text: string) => {
     chatMessages.value.push({
-      id: String(Date.now()),
+      id: `sys_client_${Date.now()}`,
       senderName: '系统',
       text,
-      timestamp: getFormattedTime(),
+      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
       isSystem: true
     })
-  }
-
-  // --- HELPER ALGORITHMS ---
-
-  const getFormattedTime = () => {
-    const d = new Date()
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  }
-
-  const checkWin = (r: number, c: number, color: 'black' | 'white') => {
-    const directions = [
-      [
-        [0, 1],
-        [0, -1]
-      ], // Horizontal
-      [
-        [1, 0],
-        [-1, 0]
-      ], // Vertical
-      [
-        [1, 1],
-        [-1, -1]
-      ], // Diagonal \
-      [
-        [1, -1],
-        [-1, 1]
-      ] // Counter-diagonal /
-    ]
-
-    for (const dir of directions) {
-      const coords = [{ row: r, col: c }]
-      for (const [dr, dc] of dir) {
-        let nr = r + dr
-        let nc = c + dc
-        while (
-          nr >= 0 &&
-          nr < boardSize &&
-          nc >= 0 &&
-          nc < boardSize &&
-          board.value[nr][nc] === color
-        ) {
-          coords.push({ row: nr, col: nc })
-          nr += dr
-          nc += dc
-        }
-      }
-      if (coords.length >= 5) {
-        return coords.sort((a, b) => a.row - b.row || a.col - b.col)
-      }
-    }
-    return null
-  }
-
-  const simulateMockChatResponse = (_playerMsg: string) => {
-    setTimeout(() => {
-      if (activeRoom.value && gameStatus.value === 'playing') {
-        const responses = [
-          '好棋！这步下得妙啊。',
-          '哎呀，我刚才大意了。',
-          '局势焦灼，阁下内力深厚！',
-          '哈哈，来决一胜负吧！',
-          '容我三思……',
-          '承让承让，阁下棋路开阔。'
-        ]
-        const randomMsg = responses[Math.floor(Math.random() * responses.length)]
-        const responder =
-          simulationRole.value === 'black' ? playerWhite.value?.name : playerBlack.value?.name
-        chatMessages.value.push({
-          id: String(Date.now()),
-          senderName: responder || '对手',
-          text: randomMsg,
-          timestamp: getFormattedTime()
-        })
-      }
-    }, 1500)
   }
 
   return {
@@ -530,6 +573,10 @@ export function useGameState() {
     playerWhite,
     spectators,
     chatMessages,
+    isConnected,
+    showRetractDialog,
+    retractRequesterName,
+    retractCooldown,
     saveNickname,
     createRoom,
     joinRoom,
@@ -540,6 +587,8 @@ export function useGameState() {
     resignGame,
     sendChat,
     resetGameState,
-    logout
+    logout,
+    respondRetract,
+    updateRoomConfig
   }
 }

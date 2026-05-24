@@ -4,6 +4,7 @@ export interface Player {
   role: 'player' | 'spectator'
   color: 'black' | 'white' | null
   isReady: boolean
+  isOffline?: boolean
 }
 
 export interface Room {

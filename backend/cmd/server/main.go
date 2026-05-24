@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 
@@ -20,6 +22,7 @@ func main() {
 	hostPtr := flag.String("host", "0.0.0.0", "The IP address to bind the server to")
 	portPtr := flag.Int("port", 8080, "The port number to listen on")
 	levelPtr := flag.String("level", "info", "Log output severity level (debug, info, warn, error)")
+	forwardPtr := flag.String("forward", "", "The target host to forward all unhandled traffic (e.g., '127.0.0.1:5173')")
 
 	// Execute the command-line parsing
 	flag.Parse()
@@ -90,6 +93,38 @@ func main() {
 	{
 		api.GET("/ping", func(c *gin.Context) {
 			c.JSON(200, gin.H{"status": "healthy", "message": "pong"})
+		})
+
+		gomokuAPI := api.Group("/gomoku")
+		{
+			gomoku.RegisterHandlers(gomokuAPI)
+		}
+	}
+
+	// ==========================================================
+	// 4.5. Reverse Proxy for Unhandled Routes
+	// ==========================================================
+	if *forwardPtr != "" {
+		target := *forwardPtr
+		if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+			target = "http://" + target
+		}
+		targetURL, err := url.Parse(target)
+		if err != nil {
+			slog.Error("Failed to parse forward target URL", slog.String("url", target), slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+
+		slog.Info("Reverse proxy initialized to forward traffic", slog.String("target", targetURL.String()))
+		proxy := &httputil.ReverseProxy{
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(targetURL)
+				pr.Out.Host = targetURL.Host
+			},
+		}
+
+		r.NoRoute(func(c *gin.Context) {
+			proxy.ServeHTTP(c.Writer, c.Request)
 		})
 	}
 
