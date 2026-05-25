@@ -708,10 +708,10 @@ const isLastMove = (r: number, c: number) => {
                           :variant="state.playerBlack.value?.isReady ? 'solid' : 'subtle'"
                           size="sm"
                           :class="[
-                            'font-bold rounded-md shadow-sm',
-                            !state.playerBlack.value?.isReady
-                              ? 'text-slate-500 bg-slate-100 border border-slate-200'
-                              : ''
+                            'font-bold rounded-md shadow-sm border',
+                            state.playerBlack.value?.isReady
+                              ? 'border-transparent'
+                              : 'text-slate-500 bg-slate-100 border-slate-200'
                           ]"
                         >
                           {{ state.playerBlack.value?.isReady ? '已准备' : '等待中' }}
@@ -778,10 +778,10 @@ const isLastMove = (r: number, c: number) => {
                           :variant="state.playerWhite.value?.isReady ? 'solid' : 'subtle'"
                           size="sm"
                           :class="[
-                            'font-bold rounded-md shadow-sm',
-                            !state.playerWhite.value?.isReady
-                              ? 'text-slate-500 bg-slate-100 border border-slate-200'
-                              : ''
+                            'font-bold rounded-md shadow-sm border',
+                            state.playerWhite.value?.isReady
+                              ? 'border-transparent'
+                              : 'text-slate-500 bg-slate-100 border-slate-200'
                           ]"
                         >
                           {{ state.playerWhite.value?.isReady ? '已准备' : '等待中' }}
