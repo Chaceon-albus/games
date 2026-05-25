@@ -614,6 +614,9 @@ func (m *Manager) handleAction(s *melody.Session, uuid string, msg ClientMessage
 			destRoomID, _ := val.(string)
 			return destRoomID == room.ID
 		})
+
+	case "list_rooms":
+		m.sendRoomList(s)
 	}
 }
 

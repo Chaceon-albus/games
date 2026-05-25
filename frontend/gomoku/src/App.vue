@@ -130,6 +130,20 @@ watch(state.nickname, newVal => {
   loginInput.value = newVal
 })
 
+// Watch manual refresh to trigger toast
+watch(state.manualRefreshCount, newVal => {
+  if (newVal !== null) {
+    toast.add({
+      title: '刷新成功',
+      description: `已获取到 ${newVal} 个房间`,
+      color: 'success',
+      icon: 'i-heroicons-check-circle',
+      duration: 1000
+    })
+    state.manualRefreshCount.value = null
+  }
+})
+
 // Auto-scroll chat element
 const chatFeedRef = ref<HTMLDivElement | null>(null)
 watch(
@@ -240,7 +254,7 @@ const isLastMove = (r: number, c: number) => {
             <form class="space-y-5" @submit.prevent="handleLogin">
               <div class="space-y-2">
                 <label class="text-sm font-bold text-slate-700 block" for="username">
-                  请输入您的玩家昵称
+                  请输入您的昵称
                 </label>
                 <UInput
                   id="username"
@@ -248,7 +262,7 @@ const isLastMove = (r: number, c: number) => {
                   type="text"
                   size="lg"
                   icon="i-heroicons-user"
-                  placeholder="请输入您的玩家昵称"
+                  placeholder="请输入您的昵称"
                   required
                   maxlength="20"
                   autocomplete="off"
@@ -303,28 +317,47 @@ const isLastMove = (r: number, c: number) => {
             </div>
           </div>
 
-          <div class="flex items-center gap-3">
-            <UInput
-              v-model="newRoomInput"
-              type="text"
-              size="md"
-              placeholder="输入一个新房间的名字"
-              maxlength="20"
-              @keyup.enter="handleCreateRoom"
-              class="w-64"
-            />
+          <div class="flex items-center justify-between flex-wrap gap-4">
             <UButton
-              color="primary"
+              color="neutral"
+              variant="subtle"
               size="md"
-              class="font-bold rounded-xl"
-              icon="i-heroicons-plus"
-              @click="handleCreateRoom"
+              class="font-bold rounded-xl shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              icon="i-heroicons-arrow-path"
+              @click="state.refreshRooms"
             >
-              创建房间
+              刷新列表
             </UButton>
+
+            <div class="flex items-center gap-3">
+              <UInput
+                v-model="newRoomInput"
+                type="text"
+                size="md"
+                placeholder="输入一个新房间的名字"
+                maxlength="20"
+                @keyup.enter="handleCreateRoom"
+                class="w-64"
+              />
+              <UButton
+                color="primary"
+                size="md"
+                class="font-bold rounded-xl cursor-pointer"
+                icon="i-heroicons-plus"
+                @click="handleCreateRoom"
+              >
+                创建房间
+              </UButton>
+            </div>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          <div v-if="state.rooms.length === 0" class="flex flex-col items-center justify-center py-16 px-4 border border-dashed border-slate-200 rounded-2xl bg-white/50 backdrop-blur-sm">
+            <span class="text-4xl mb-3 opacity-60">🎮</span>
+            <p class="text-sm font-bold text-slate-400 tracking-wide">空空如也</p>
+            <p class="text-xs text-slate-400/80 mt-1">当前大厅空无一人，输入名称创建一个新房间吧！</p>
+          </div>
+
+          <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             <UCard
               v-for="room in state.rooms"
               :key="room.id"

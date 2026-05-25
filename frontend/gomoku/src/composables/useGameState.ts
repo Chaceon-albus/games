@@ -25,6 +25,8 @@ export function useGameState() {
   // Lobby Rooms
   const rooms = reactive<Room[]>([])
   const activeRoom = ref<any | null>(null)
+  const isManualRefreshing = ref(false)
+  const manualRefreshCount = ref<number | null>(null)
 
   // Gameplay State (Mapped dynamically from server Room state)
   const boardSize = 15
@@ -216,6 +218,10 @@ export function useGameState() {
     switch (msg.type) {
       case 'room_list':
         rooms.splice(0, rooms.length, ...msg.data)
+        if (isManualRefreshing.value) {
+          isManualRefreshing.value = false
+          manualRefreshCount.value = msg.data.length
+        }
         break
 
       case 'room_state':
@@ -525,6 +531,11 @@ export function useGameState() {
     sendWsAction('configure_room', { config })
   }
 
+  const refreshRooms = () => {
+    isManualRefreshing.value = true
+    sendWsAction('list_rooms')
+  }
+
   // Computed properties for retract requesting dialogue
   const retractRequesterName = computed(() => activeRoom.value?.retractRequesterName || '')
   const showRetractDialog = computed(() => {
@@ -590,6 +601,8 @@ export function useGameState() {
     resetGameState,
     logout,
     respondRetract,
-    updateRoomConfig
+    updateRoomConfig,
+    refreshRooms,
+    manualRefreshCount
   }
 }
