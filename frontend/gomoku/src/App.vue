@@ -144,10 +144,27 @@ watch(state.manualRefreshCount, newVal => {
   }
 })
 
+// Track whether the player just joined/created a room to prevent initial transition toasts
+const justEnteredRoom = ref(false)
+watch(
+  () => state.activeRoom.value?.id,
+  (newId, oldId) => {
+    if (newId && newId !== oldId) {
+      justEnteredRoom.value = true
+      nextTick(() => {
+        justEnteredRoom.value = false
+      })
+    }
+  }
+)
+
 // Watch spectator promotion/fill-in to trigger welcome toast
 watch(
   () => state.simulationRole.value,
   (newRole, oldRole) => {
+    // Prevent promotion toast from triggering during initial room entry/creation
+    if (justEnteredRoom.value) return
+
     if (oldRole === 'spectator' && (newRole === 'black' || newRole === 'white')) {
       const colorText = newRole === 'black' ? '黑方（先手）' : '白方（后手）'
       toast.add({
@@ -172,7 +189,9 @@ const mySpectatorStatus = computed(() => {
 
 // Watch spectator status to pop up a 1s queue position notification
 watch(mySpectatorStatus, (newPos, oldPos) => {
-  if (newPos !== null && newPos !== oldPos) {
+  // Only trigger when BOTH oldPos and newPos are numbers (i.e. position changes within the active queue)
+  // This ensures it only pops up when: 1. Room autoJoin is enabled, 2. Self is spectator, 3. Position actually shifts
+  if (typeof oldPos === 'number' && typeof newPos === 'number' && newPos !== oldPos) {
     toast.add({
       title: '自动补位队列',
       description: `本房间开启了观战自动补位，您当前处于队列第 ${newPos} 位`,
