@@ -144,6 +144,45 @@ watch(state.manualRefreshCount, newVal => {
   }
 })
 
+// Watch spectator promotion/fill-in to trigger welcome toast
+watch(
+  () => state.simulationRole.value,
+  (newRole, oldRole) => {
+    if (oldRole === 'spectator' && (newRole === 'black' || newRole === 'white')) {
+      const colorText = newRole === 'black' ? '黑方（先手）' : '白方（后手）'
+      toast.add({
+        title: '⚔️补位成功',
+        description: `您已自动补位成为${colorText}玩家，请点击下方准备开启对局！`,
+        icon: 'i-heroicons-user-plus',
+        color: 'success',
+        duration: 5000
+      })
+    }
+  }
+)
+
+// Computed spectator queue position when auto-join is active
+const mySpectatorStatus = computed(() => {
+  if (state.simulationRole.value !== 'spectator' || !state.activeRoom.value?.config?.autoJoinSpectator) {
+    return null
+  }
+  const idx = state.spectators.value.findIndex(s => s.name === state.nickname.value)
+  return idx === -1 ? null : idx + 1
+})
+
+// Watch spectator status to pop up a 1s queue position notification
+watch(mySpectatorStatus, (newPos, oldPos) => {
+  if (newPos !== null && newPos !== oldPos) {
+    toast.add({
+      title: '自动补位队列',
+      description: `本房间开启了观战自动补位，您当前处于队列第 ${newPos} 位`,
+      color: 'info',
+      icon: 'i-heroicons-information-circle',
+      duration: 1000
+    })
+  }
+})
+
 // Auto-scroll chat element
 const chatFeedRef = ref<HTMLDivElement | null>(null)
 watch(
