@@ -89,6 +89,16 @@ const toast = useToast()
 
 // Input states
 const loginInput = ref(state.nickname.value)
+
+const isRandomName = computed(() => {
+  return /^五子棋玩家#\d+$/.test(loginInput.value)
+})
+
+const handleFocus = () => {
+  if (isRandomName.value) {
+    loginInput.value = ''
+  }
+}
 const newRoomInput = ref('')
 const chatInput = ref('')
 const hoveredCell = ref<{ row: number; col: number }>({ row: 0, col: 0 })
@@ -325,6 +335,8 @@ const isLastMove = (r: number, c: number) => {
                   maxlength="20"
                   autocomplete="off"
                   class="rounded-xl w-full"
+                  :class="{ 'is-random-name': isRandomName }"
+                  @focus="handleFocus"
                 />
               </div>
 
@@ -1158,5 +1170,10 @@ const isLastMove = (r: number, c: number) => {
 .popover-fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+/* Style for random nickname input */
+.is-random-name input {
+  color: #94a3b8 !important; /* Slate 400 */
 }
 </style>
