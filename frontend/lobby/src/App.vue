@@ -21,7 +21,7 @@ const currentYear = new Date().getFullYear()
             <h3 class="game-title">五子棋</h3>
           </div>
 
-          <p class="game-description">胜固欣然，败亦可喜。来盘方寸博弈，且看谁先落子成线。</p>
+          <p class="game-description">胜固欣然，败亦可喜。方寸博弈，看谁先落子成线。</p>
         </div>
       </a>
 

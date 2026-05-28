@@ -1,16 +1,15 @@
 :root {
   --sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 
-  /* Bilibili Pink & Tianyi Blue Premium Palette */
   --bg-primary: #f8fafc;
   --text-main: #334155;
   --text-title: #0f172a;
   --text-muted: #64748b;
 
-  --primary: #fb7299;             /* B站粉 */
-  --primary-hover: #eb557f;       /* B站粉 (深色Hover) */
+  --primary: #fb7299;
+  --primary-hover: #eb557f;
   --primary-glow: rgba(251, 114, 153, 0.12);
-  --secondary: #00aeec;           /* 天依蓝/2233蓝 */
+  --secondary: #00aeec;
   --secondary-glow: rgba(0, 174, 236, 0.12);
 
   --gradient-accent: linear-gradient(135deg, #fb7299 0%, #66ccff 100%);
@@ -77,7 +76,7 @@ body::before {
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
-  padding: 80px 24px;
+  padding: 60px 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -87,7 +86,7 @@ body::before {
 .games-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 40px;
+  gap: 32px;
   width: 100%;
   max-width: 1000px;
 }
@@ -95,10 +94,39 @@ body::before {
 @media (max-width: 768px) {
   .games-grid {
     grid-template-columns: 1fr;
-    gap: 24px;
+    gap: 20px;
   }
   .main-content {
-    padding: 40px 16px;
+    padding: 32px 16px;
+  }
+  .card-image-wrapper {
+    height: 160px;
+  }
+  .card-content {
+    padding: 20px;
+  }
+  .coming-soon-card {
+    min-height: 220px;
+    padding: 20px;
+  }
+  .placeholder-icon-container {
+    width: 56px;
+    height: 56px;
+    margin-bottom: 12px;
+  }
+  .sparkle-svg {
+    width: 24px;
+    height: 24px;
+  }
+  .placeholder-title {
+    font-size: 18px;
+    margin-bottom: 4px;
+  }
+  .quote-divider {
+    margin: 12px 0 8px;
+  }
+  .coming-soon-quote {
+    font-size: 12.5px;
   }
 }
 
@@ -125,7 +153,7 @@ body::before {
 
 .card-image-wrapper {
   position: relative;
-  height: 250px;
+  height: 200px;
   overflow: hidden;
   background: #e2e8f0;
 }
@@ -151,9 +179,10 @@ body::before {
 }
 
 .card-content {
-  padding: 32px;
+  padding: 24px 32px;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 12px;
   flex: 1;
 }
@@ -182,14 +211,14 @@ body::before {
   background: rgba(255, 255, 255, 0.45);
   border: 2px dashed rgba(251, 114, 153, 0.25);
   border-radius: 24px;
-  padding: 40px;
+  padding: 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
   position: relative;
-  min-height: 440px;
+  min-height: 360px;
   backdrop-filter: blur(16px);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.01);
   transition: all 0.4s ease;
@@ -211,7 +240,7 @@ body::before {
   align-items: center;
   justify-content: center;
   color: var(--primary);
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   border: 1px solid rgba(251, 114, 153, 0.15);
   box-shadow: 0 8px 24px rgba(251, 114, 153, 0.05);
 }
@@ -249,7 +278,7 @@ body::before {
   width: 36px;
   height: 1px;
   background: rgba(251, 114, 153, 0.25);
-  margin: 24px 0 16px;
+  margin: 16px 0 12px;
 }
 
 .coming-soon-quote {
