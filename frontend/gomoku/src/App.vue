@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import { useGameState } from './composables/useGameState'
+import type { RoomConfig } from './types'
 
 // Declare useToast globally for TypeScript compilation since it is auto-imported by the Nuxt UI Vite plugin at build/runtime
 declare const useToast: any
@@ -33,10 +34,25 @@ watch(
     if (newStatus === 'ended' && oldStatus === 'playing') {
       const newWinner = state.winner.value
       if (newWinner) {
+        if (newWinner === 'draw') {
+          toast.add({
+            id: 'win-notification',
+            title: '🤝 本局平局',
+            description: '棋盘已满，双方本局握手言和。',
+            icon: 'i-heroicons-scale',
+            color: 'neutral',
+            duration: 5000
+          })
+          return
+        }
         const isWinnerSelf = state.simulationRole.value === newWinner
         const isPlayer = state.simulationRole.value !== 'spectator'
         const toastColor = isPlayer ? (isWinnerSelf ? 'success' : 'danger') : 'success'
-        const winTitle = isPlayer ? (isWinnerSelf ? '🎉 恭喜获胜！' : '🔥 惜败，请再接再厉！') : '对局结束'
+        const winTitle = isPlayer
+          ? isWinnerSelf
+            ? '🎉 恭喜获胜！'
+            : '🔥 惜败，请再接再厉！'
+          : '对局结束'
 
         toast.add({
           id: 'win-notification',
@@ -65,13 +81,36 @@ watch(
 
 // Swapping helper: check if White player is the current user ("Me")
 const isWhiteSelf = computed(() => {
-  return state.playerWhite.value?.name === state.nickname.value
+  return state.simulationRole.value === 'white'
 })
 
 // Game started helper: whether game is currently playing or has ended
 const isGameStarted = computed(() => {
   return state.gameStatus.value === 'playing' || state.gameStatus.value === 'ended'
 })
+
+const canClaimSeat = computed(() => {
+  return (
+    state.isConnected.value &&
+    state.simulationRole.value === 'spectator' &&
+    state.gameStatus.value !== 'playing' &&
+    state.activeRoom.value?.opponent === null
+  )
+})
+
+const handleReadyOrClaim = () => {
+  if (canClaimSeat.value) {
+    state.claimSeat()
+  } else {
+    state.toggleReady()
+  }
+}
+
+const updateRoomConfig = (changes: Partial<RoomConfig>) => {
+  const config = state.activeRoom.value?.config
+  if (!config) return
+  state.updateRoomConfig({ ...config, ...changes })
+}
 
 // Force light theme
 onMounted(() => {
@@ -190,10 +229,13 @@ watch(
 
 // Computed spectator queue position when auto-join is active
 const mySpectatorStatus = computed(() => {
-  if (state.simulationRole.value !== 'spectator' || !state.activeRoom.value?.config?.autoJoinSpectator) {
+  if (
+    state.simulationRole.value !== 'spectator' ||
+    !state.activeRoom.value?.config?.autoJoinSpectator
+  ) {
     return null
   }
-  const idx = state.spectators.value.findIndex(s => s.name === state.nickname.value)
+  const idx = state.spectators.value.findIndex(s => s.id === state.playerId.value)
   return idx === -1 ? null : idx + 1
 })
 
@@ -246,14 +288,18 @@ const handleCreateRoom = () => {
 }
 
 const handleSendChat = () => {
-  if (chatInput.value.trim()) {
-    state.sendChat(chatInput.value)
+  if (chatInput.value.trim() && state.sendChat(chatInput.value)) {
     chatInput.value = ''
   }
 }
 
 const handleResign = () => {
   showResignDialog.value = true
+}
+
+const confirmResign = () => {
+  state.resignGame()
+  showResignDialog.value = false
 }
 
 // 15x15 Star Points checker
@@ -421,10 +467,15 @@ const isLastMove = (r: number, c: number) => {
             </div>
           </div>
 
-          <div v-if="state.rooms.length === 0" class="flex flex-col items-center justify-center py-16 px-4 border border-dashed border-slate-200 rounded-2xl bg-white/50 backdrop-blur-sm">
+          <div
+            v-if="state.rooms.length === 0"
+            class="flex flex-col items-center justify-center py-16 px-4 border border-dashed border-slate-200 rounded-2xl bg-white/50 backdrop-blur-sm"
+          >
             <span class="text-4xl mb-3 opacity-60">🎮</span>
             <p class="text-sm font-bold text-slate-400 tracking-wide">空空如也</p>
-            <p class="text-xs text-slate-400/80 mt-1">当前大厅空无一人，输入名称创建一个新房间吧！</p>
+            <p class="text-xs text-slate-400/80 mt-1">
+              当前大厅空无一人，输入名称创建一个新房间吧！
+            </p>
           </div>
 
           <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -457,7 +508,8 @@ const isLastMove = (r: number, c: number) => {
                     }}
                   </UBadge>
                   <span class="text-xs font-semibold text-slate-400 flex items-center gap-1">
-                    👥 {{ room.playerCount }}/{{ room.maxPlayers }}
+                    ⚔️ {{ room.playerCount }}/{{ room.maxPlayers }} · 👁️
+                    {{ room.spectatorCount }}/{{ room.maxSpectators }}
                   </span>
                 </div>
               </template>
@@ -488,9 +540,11 @@ const isLastMove = (r: number, c: number) => {
               </h2>
               <p class="text-sm text-slate-600">
                 房间ID: {{ state.activeRoom.value?.id }} | 状态:
-                <span 
+                <span
                   class="font-bold"
-                  :class="[state.gameStatus.value === 'playing' ? 'text-emerald-600' : 'text-slate-600']"
+                  :class="[
+                    state.gameStatus.value === 'playing' ? 'text-emerald-600' : 'text-slate-600'
+                  ]"
                 >
                   {{ state.gameStatus.value === 'playing' ? '对局中' : '等待中' }}
                 </span>
@@ -498,10 +552,7 @@ const isLastMove = (r: number, c: number) => {
             </div>
 
             <!-- Settings Popover for Host (Gear Icon) -->
-            <div
-              v-if="state.activeRoom.value?.host?.name === state.nickname.value"
-              class="relative z-30"
-            >
+            <div v-if="state.activeRoom.value?.self.role === 'host'" class="relative z-30">
               <UButton
                 color="neutral"
                 variant="ghost"
@@ -530,11 +581,7 @@ const isLastMove = (r: number, c: number) => {
                       <USwitch
                         :model-value="state.activeRoom.value?.config?.autoJoinSpectator"
                         @update:model-value="
-                          (val: boolean) =>
-                            state.updateRoomConfig({
-                              ...state.activeRoom.value?.config,
-                              autoJoinSpectator: val
-                            })
+                          (val: boolean) => updateRoomConfig({ autoJoinSpectator: val })
                         "
                       />
                     </div>
@@ -545,11 +592,7 @@ const isLastMove = (r: number, c: number) => {
                       <USwitch
                         :model-value="state.activeRoom.value?.config?.disableChat"
                         @update:model-value="
-                          (val: boolean) =>
-                            state.updateRoomConfig({
-                              ...state.activeRoom.value?.config,
-                              disableChat: val
-                            })
+                          (val: boolean) => updateRoomConfig({ disableChat: val })
                         "
                       />
                     </div>
@@ -561,10 +604,7 @@ const isLastMove = (r: number, c: number) => {
                         :model-value="state.activeRoom.value?.config?.colorMode === 'random'"
                         @update:model-value="
                           (val: boolean) =>
-                            state.updateRoomConfig({
-                              ...state.activeRoom.value?.config,
-                              colorMode: val ? 'random' : 'alternating'
-                            })
+                            updateRoomConfig({ colorMode: val ? 'random' : 'alternating' })
                         "
                       />
                     </div>
@@ -598,13 +638,25 @@ const isLastMove = (r: number, c: number) => {
                   <div class="space-y-2 text-xs font-semibold text-slate-600">
                     <div class="flex justify-between">
                       <span>观战自动补位：</span>
-                      <span :class="[state.activeRoom.value?.config?.autoJoinSpectator ? 'text-emerald-600' : 'text-slate-500']">
+                      <span
+                        :class="[
+                          state.activeRoom.value?.config?.autoJoinSpectator
+                            ? 'text-emerald-600'
+                            : 'text-slate-500'
+                        ]"
+                      >
                         {{ state.activeRoom.value?.config?.autoJoinSpectator ? '开启' : '关闭' }}
                       </span>
                     </div>
                     <div class="flex justify-between">
                       <span>聊天区：</span>
-                      <span :class="[!state.activeRoom.value?.config?.disableChat ? 'text-emerald-600' : 'text-slate-500']">
+                      <span
+                        :class="[
+                          !state.activeRoom.value?.config?.disableChat
+                            ? 'text-emerald-600'
+                            : 'text-slate-500'
+                        ]"
+                      >
                         {{ state.activeRoom.value?.config?.disableChat ? '禁用' : '启用' }}
                       </span>
                     </div>
@@ -787,7 +839,7 @@ const isLastMove = (r: number, c: number) => {
                           {{ state.playerBlack.value?.isReady ? '已准备' : '等待中' }}
                         </UBadge>
                         <span
-                          v-if="state.playerBlack.value?.name === state.nickname.value"
+                          v-if="state.playerBlack.value?.id === state.playerId.value"
                           class="text-xs font-bold text-sky-500"
                         >
                           (我)
@@ -857,7 +909,7 @@ const isLastMove = (r: number, c: number) => {
                           {{ state.playerWhite.value?.isReady ? '已准备' : '等待中' }}
                         </UBadge>
                         <span
-                          v-if="state.playerWhite.value?.name === state.nickname.value"
+                          v-if="state.playerWhite.value?.id === state.playerId.value"
                           class="text-xs font-bold text-sky-500"
                         >
                           (我)
@@ -891,7 +943,7 @@ const isLastMove = (r: number, c: number) => {
                           'flex flex-col max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed shadow-sm',
                           msg.isSystem
                             ? 'self-center max-w-[90%] text-xs italic bg-slate-100 text-slate-500 rounded-xl py-1 border-0 shadow-none'
-                            : msg.senderName === state.nickname.value
+                            : msg.senderId === state.playerId.value
                               ? 'self-end bg-emerald-600 text-white rounded-tr-none'
                               : 'self-start bg-white text-slate-800 border border-slate-100 rounded-tl-none'
                         ]"
@@ -913,9 +965,17 @@ const isLastMove = (r: number, c: number) => {
                         type="text"
                         class="flex-grow border-0 px-4 py-3 outline-none text-sm text-slate-800 disabled:bg-slate-50 disabled:text-slate-400 disabled:italic rounded-bl-2xl"
                         :placeholder="
-                          state.simulationRole.value === 'spectator' ? '观棋不语真君子' : '说点什么'
+                          state.activeRoom.value?.config.disableChat
+                            ? '房间已禁用聊天'
+                            : state.simulationRole.value === 'spectator'
+                              ? '观棋不语真君子'
+                              : '说点什么'
                         "
-                        :disabled="state.simulationRole.value === 'spectator'"
+                        :disabled="
+                          !state.isConnected.value ||
+                          state.activeRoom.value?.config.disableChat ||
+                          state.simulationRole.value === 'spectator'
+                        "
                         maxlength="100"
                       />
                       <UButton
@@ -923,7 +983,12 @@ const isLastMove = (r: number, c: number) => {
                         variant="ghost"
                         color="neutral"
                         size="sm"
-                        :disabled="state.simulationRole.value === 'spectator' || !chatInput.trim()"
+                        :disabled="
+                          !state.isConnected.value ||
+                          state.activeRoom.value?.config.disableChat ||
+                          state.simulationRole.value === 'spectator' ||
+                          !chatInput.trim()
+                        "
                         class="font-bold px-4 rounded-none rounded-br-2xl"
                       >
                         发送
@@ -935,7 +1000,7 @@ const isLastMove = (r: number, c: number) => {
                 <!-- Dashboard Symmetrical Actions Panel powered by Nuxt UI UButton -->
                 <template #footer>
                   <div class="grid grid-cols-2 gap-3 sm:gap-4">
-                    <!-- 悔棋 -->
+                    <!-- Retract move -->
                     <UButton
                       block
                       color="neutral"
@@ -943,10 +1008,11 @@ const isLastMove = (r: number, c: number) => {
                       size="md"
                       class="font-bold rounded-xl shadow-sm border border-slate-200"
                       :disabled="
+                        !state.isConnected.value ||
                         state.simulationRole.value === 'spectator' ||
                         state.gameStatus.value !== 'playing' ||
                         state.history.value.length === 0 ||
-                        state.activeRoom.value?.retractRequester !== '' ||
+                        state.activeRoom.value?.retractPending ||
                         state.retractCooldown.value > 0
                       "
                       @click="state.retractMove"
@@ -958,7 +1024,7 @@ const isLastMove = (r: number, c: number) => {
                       }}
                     </UButton>
 
-                     <!-- 认输 -->
+                    <!-- Resign -->
                     <UButton
                       block
                       color="danger"
@@ -966,6 +1032,7 @@ const isLastMove = (r: number, c: number) => {
                       size="md"
                       class="font-bold rounded-xl shadow-sm shadow-red-50 hover:bg-red-600 active:bg-red-700 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
                       :disabled="
+                        !state.isConnected.value ||
                         state.simulationRole.value === 'spectator' ||
                         state.gameStatus.value !== 'playing'
                       "
@@ -974,7 +1041,7 @@ const isLastMove = (r: number, c: number) => {
                       认输
                     </UButton>
 
-                    <!-- 准备 -->
+                    <!-- Ready or claim an open seat -->
                     <UButton
                       block
                       :color="state.gameStatus.value === 'playing' ? 'success' : 'primary'"
@@ -991,27 +1058,35 @@ const isLastMove = (r: number, c: number) => {
                       "
                       size="md"
                       class="font-bold rounded-xl shadow-md"
-                      :class="[state.gameStatus.value === 'playing' ? 'shadow-emerald-50' : 'shadow-slate-100']"
-                      :disabled="
-                        state.simulationRole.value === 'spectator' ||
+                      :class="[
                         state.gameStatus.value === 'playing'
+                          ? 'shadow-emerald-50'
+                          : 'shadow-slate-100'
+                      ]"
+                      :disabled="
+                        !state.isConnected.value ||
+                        state.gameStatus.value === 'playing' ||
+                        (state.simulationRole.value === 'spectator' && !canClaimSeat)
                       "
-                      @click="state.toggleReady"
+                      @click="handleReadyOrClaim"
                     >
                       {{
                         state.gameStatus.value === 'playing'
                           ? '对局中'
-                          : state.simulationRole.value !== 'spectator' &&
-                              ((state.simulationRole.value === 'black' &&
-                                state.playerBlack.value?.isReady) ||
-                                (state.simulationRole.value === 'white' &&
-                                  state.playerWhite.value?.isReady))
-                            ? '取消准备'
-                            : '准备'
+                          : canClaimSeat
+                            ? '加入对局'
+                            : state.simulationRole.value === 'spectator'
+                              ? '观战中'
+                              : (state.simulationRole.value === 'black' &&
+                                    state.playerBlack.value?.isReady) ||
+                                  (state.simulationRole.value === 'white' &&
+                                    state.playerWhite.value?.isReady)
+                                ? '取消准备'
+                                : '准备'
                       }}
                     </UButton>
 
-                    <!-- 离开房间 -->
+                    <!-- Leave room -->
                     <UButton
                       block
                       color="neutral"
@@ -1019,8 +1094,9 @@ const isLastMove = (r: number, c: number) => {
                       size="md"
                       class="font-bold rounded-xl border border-slate-200 hover:bg-slate-50"
                       :disabled="
-                        state.simulationRole.value !== 'spectator' &&
-                        state.gameStatus.value === 'playing'
+                        !state.isConnected.value ||
+                        (state.simulationRole.value !== 'spectator' &&
+                          state.gameStatus.value === 'playing')
                       "
                       @click="state.leaveRoom"
                     >
@@ -1059,7 +1135,9 @@ const isLastMove = (r: number, c: number) => {
             class="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-6 transform scale-100 transition-all duration-300"
           >
             <div class="flex items-center gap-3">
-              <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+              <div
+                class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0"
+              >
                 <UIcon name="i-heroicons-arrow-path" class="w-6 h-6" />
               </div>
               <div>
@@ -1102,7 +1180,9 @@ const isLastMove = (r: number, c: number) => {
             class="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-6 transform scale-100 transition-all duration-300"
           >
             <div class="flex items-center gap-3">
-              <div class="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
+              <div
+                class="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0"
+              >
                 <UIcon name="i-heroicons-flag" class="w-6 h-6" />
               </div>
               <div>
@@ -1120,10 +1200,7 @@ const isLastMove = (r: number, c: number) => {
               </button>
               <button
                 class="w-full py-3 rounded-2xl font-bold bg-red-600 hover:bg-red-700 text-white transition-all shadow-md shadow-red-100 cursor-pointer"
-                @click="
-                  state.resignGame();
-                  showResignDialog = false;
-                "
+                @click="confirmResign"
               >
                 确认认输
               </button>

@@ -1,5 +1,15 @@
-import { ref, reactive, watch, onMounted, computed } from 'vue'
-import type { Player, Room, ChatMessage, Move } from '../types'
+import { ref, reactive, watch, onMounted, computed, onUnmounted } from 'vue'
+import type {
+  ActiveRoom,
+  ChatMessage,
+  ErrorPayload,
+  GameWinner,
+  Move,
+  Player,
+  Room,
+  RoomConfig,
+  StoneColor
+} from '../types'
 
 export function useGameState() {
   // --- ENDPOINTS RESOLVER ---
@@ -19,12 +29,13 @@ export function useGameState() {
 
   // --- STATE VARIABLES ---
   const nickname = ref('')
+  const playerId = ref('')
   const currentView = ref<'login' | 'lobby' | 'room'>('login')
   const isConnected = ref(false)
 
   // Lobby Rooms
   const rooms = reactive<Room[]>([])
-  const activeRoom = ref<any | null>(null)
+  const activeRoom = ref<ActiveRoom | null>(null)
   const isManualRefreshing = ref(false)
   const manualRefreshCount = ref<number | null>(null)
 
@@ -36,9 +47,9 @@ export function useGameState() {
       .map(() => Array(boardSize).fill(null))
   )
   const history = ref<Move[]>([])
-  const turn = ref<'black' | 'white'>('black')
+  const turn = ref<StoneColor>('black')
   const gameStatus = ref<'idle' | 'ready' | 'playing' | 'ended'>('idle')
-  const winner = ref<'black' | 'white' | null>(null)
+  const winner = ref<GameWinner | null>(null)
   const winningLine = ref<{ row: number; col: number }[]>([])
 
   // Player Slots
@@ -51,8 +62,10 @@ export function useGameState() {
 
   // Connection Ref
   let ws: WebSocket | null = null
-  let reconnectTimer: any = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectDelay = 1000
+  let shouldReconnect = true
+  let socketSerial = 0
 
   // Simulation Role Ref for backwards compatibility with UI switcher
   const simulationRole = ref<'black' | 'white' | 'spectator'>('spectator')
@@ -62,6 +75,7 @@ export function useGameState() {
   onMounted(async () => {
     const savedUUID = localStorage.getItem('gomoku_uuid')
     const savedName = localStorage.getItem('gomoku_nickname')
+    const savedPlayerId = localStorage.getItem('gomoku_player_id')
     if (savedUUID && savedName) {
       try {
         const res = await fetch(`${baseHttpUrl}/api/v1/gomoku/verify`, {
@@ -72,6 +86,8 @@ export function useGameState() {
         const data = await res.json()
         if (data.valid) {
           nickname.value = data.nickname
+          playerId.value = data.playerId
+          localStorage.setItem('gomoku_player_id', data.playerId)
           currentView.value = 'lobby'
           connectWebSocket(savedUUID)
         } else {
@@ -80,6 +96,7 @@ export function useGameState() {
       } catch (e) {
         // Network offline fallback
         nickname.value = savedName
+        playerId.value = savedPlayerId || ''
         currentView.value = 'lobby'
         connectWebSocket(savedUUID)
       }
@@ -114,9 +131,12 @@ export function useGameState() {
       const data = await res.json()
       if (data.uuid) {
         nickname.value = data.nickname
+        playerId.value = data.playerId
         localStorage.setItem('gomoku_uuid', data.uuid)
         localStorage.setItem('gomoku_nickname', data.nickname)
+        localStorage.setItem('gomoku_player_id', data.playerId)
         currentView.value = 'lobby'
+        shouldReconnect = true
         connectWebSocket(data.uuid)
       }
     } catch (e) {
@@ -125,9 +145,18 @@ export function useGameState() {
   }
 
   const logout = () => {
+    shouldReconnect = false
+    socketSerial++
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     clearLocalStorage()
     nickname.value = `五子棋玩家#${Math.floor(100 + Math.random() * 900)}`
+    playerId.value = ''
     currentView.value = 'login'
+    activeRoom.value = null
+    resetGameStateVariables()
     if (ws) {
       ws.close()
       ws = null
@@ -137,50 +166,62 @@ export function useGameState() {
   const clearLocalStorage = () => {
     localStorage.removeItem('gomoku_uuid')
     localStorage.removeItem('gomoku_nickname')
+    localStorage.removeItem('gomoku_player_id')
   }
 
   // --- WEBSOCKET CLIENT ---
-  const pendingActions: Array<() => void> = []
-
   const connectWebSocket = (uuid: string) => {
     if (ws) return
 
-    ws = new WebSocket(`${baseWsUrl}/ws/gomoku?uuid=${uuid}`)
+    const serial = ++socketSerial
+    const socket = new WebSocket(`${baseWsUrl}/ws/gomoku?uuid=${uuid}`)
+    ws = socket
 
-    ws.onopen = () => {
+    socket.onopen = () => {
+      if (serial !== socketSerial || ws !== socket) return
       isConnected.value = true
       reconnectDelay = 1000
-      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
 
       // Clear any disconnect warnings
       chatMessages.value = chatMessages.value.filter(msg => !msg.text.includes('连接已断开'))
-
-      // Flush pending actions
-      while (pendingActions.length > 0) {
-        const action = pendingActions.shift()
-        if (action) action()
-      }
     }
 
-    ws.onclose = () => {
+    socket.onclose = event => {
+      if (serial !== socketSerial || ws !== socket) return
       isConnected.value = false
       ws = null
 
+      if (event.code === 4001 || event.reason === 'invalid_session') {
+        invalidateSession()
+        return
+      }
+      if (event.code === 4002 || event.reason === 'session_replaced') {
+        shouldReconnect = false
+        window.alert('当前账号已在另一个页面建立连接，本页面已停止重连。')
+        return
+      }
+
       const savedUUID = localStorage.getItem('gomoku_uuid')
-      if (savedUUID) {
+      if (savedUUID && shouldReconnect) {
         pushSystemMessage('连接已断开，正在尝试重新连接...')
         reconnectTimer = setTimeout(() => {
+          reconnectTimer = null
           reconnectDelay = Math.min(reconnectDelay * 2, 16000)
           connectWebSocket(savedUUID)
         }, reconnectDelay)
       }
     }
 
-    ws.onerror = () => {
-      if (ws) ws.close()
+    socket.onerror = () => {
+      if (ws === socket) socket.close()
     }
 
-    ws.onmessage = event => {
+    socket.onmessage = event => {
+      if (serial !== socketSerial || ws !== socket) return
       try {
         const msg = JSON.parse(event.data)
         handleServerMessage(msg)
@@ -190,56 +231,66 @@ export function useGameState() {
     }
   }
 
-  const sendWsAction = (action: string, data?: any) => {
-    const send = () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            action,
-            data: data || undefined
-          })
-        )
-      }
+  const invalidateSession = () => {
+    shouldReconnect = false
+    socketSerial++
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
     }
+    clearLocalStorage()
+    isConnected.value = false
+    playerId.value = ''
+    activeRoom.value = null
+    currentView.value = 'login'
+    resetGameStateVariables()
+    const currentSocket = ws
+    ws = null
+    if (currentSocket) currentSocket.close()
+    window.alert('登录状态已失效，请重新进入游戏。')
+  }
 
+  const sendWsAction = (action: string, data?: unknown) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      send()
-    } else {
-      pendingActions.push(send)
-      const savedUUID = localStorage.getItem('gomoku_uuid')
-      if (savedUUID) {
-        connectWebSocket(savedUUID)
-      }
+      ws.send(JSON.stringify({ action, data: data || undefined }))
+      return true
     }
+    return false
   }
 
   // --- SERVER INCOMING ACTION HANDLER ---
-  const handleServerMessage = (msg: { type: string; data: any }) => {
+  const handleServerMessage = (msg: { type: string; data: unknown }) => {
     switch (msg.type) {
       case 'room_list':
-        rooms.splice(0, rooms.length, ...msg.data)
+        rooms.splice(0, rooms.length, ...(msg.data as Room[]))
         if (isManualRefreshing.value) {
           isManualRefreshing.value = false
-          manualRefreshCount.value = msg.data.length
+          manualRefreshCount.value = (msg.data as Room[]).length
         }
         break
 
       case 'room_state':
-        syncRoomState(msg.data)
+        syncRoomState(msg.data as ActiveRoom | null)
         break
 
       case 'chat_message':
-        chatMessages.value.push(msg.data)
+        chatMessages.value.push(msg.data as ChatMessage)
         break
 
-      case 'error_message':
-        pushSystemMessage(`⚠️ 错误提示: ${msg.data.message}`)
+      case 'error_message': {
+        const error = msg.data as ErrorPayload
+        if (error.code === 'INVALID_SESSION') {
+          invalidateSession()
+          return
+        }
+        pushSystemMessage(`⚠️ 错误提示: ${error.message}`)
         break
+      }
     }
   }
 
   // Sync server room state to reactive refs
-  const syncRoomState = (room: any) => {
+  const syncRoomState = (room: ActiveRoom | null) => {
     activeRoom.value = room
 
     if (!room) {
@@ -249,7 +300,7 @@ export function useGameState() {
     }
 
     currentView.value = 'room'
-    history.value = room.history || []
+    history.value = room.history
     turn.value = room.turn
 
     // Map status
@@ -264,7 +315,7 @@ export function useGameState() {
     }
 
     winner.value = room.winner === '' ? null : room.winner
-    winningLine.value = room.winningLine || []
+    winningLine.value = room.winningLine
 
     // Rebuild board from history
     const newBoard = Array(boardSize)
@@ -281,20 +332,18 @@ export function useGameState() {
 
     let pBlack: Player | null = null
     let pWhite: Player | null = null
-    let activeRole: 'black' | 'white' | 'spectator' = 'spectator'
+    const activeRole: StoneColor | 'spectator' = room.self.color || 'spectator'
 
     if (host) {
       const isHostBlack = room.hostColor === 'black'
       const hostPlayer: Player = {
-        id: host.name === nickname.value ? 'user' : 'host',
+        id: host.id,
         name: host.name,
+        avatar: host.avatar,
         role: 'player',
         color: room.hostColor,
         isReady: host.isReady,
         isOffline: host.isOffline
-      }
-      if (host.name === nickname.value) {
-        activeRole = room.hostColor
       }
       if (isHostBlack) pBlack = hostPlayer
       else pWhite = hostPlayer
@@ -303,15 +352,13 @@ export function useGameState() {
     if (opponent) {
       const isOpponentBlack = room.opponentColor === 'black'
       const opponentPlayer: Player = {
-        id: opponent.name === nickname.value ? 'user' : 'opponent',
+        id: opponent.id,
         name: opponent.name,
+        avatar: opponent.avatar,
         role: 'player',
         color: room.opponentColor,
         isReady: opponent.isReady,
         isOffline: opponent.isOffline
-      }
-      if (opponent.name === nickname.value) {
-        activeRole = room.opponentColor
       }
       if (isOpponentBlack) pBlack = opponentPlayer
       else pWhite = opponentPlayer
@@ -320,13 +367,11 @@ export function useGameState() {
     playerBlack.value = pBlack
     playerWhite.value = pWhite
 
-    spectators.value = (room.spectators || []).map((spec: any) => {
-      if (spec.name === nickname.value) {
-        activeRole = 'spectator'
-      }
+    spectators.value = room.spectators.map(spec => {
       return {
-        id: spec.name === nickname.value ? 'user' : 'spectator',
+        id: spec.id,
         name: spec.name,
+        avatar: spec.avatar,
         role: 'spectator',
         color: null,
         isReady: false,
@@ -336,6 +381,7 @@ export function useGameState() {
 
     // Set simulation role for UI binding compatibility
     simulationRole.value = activeRole
+    playerId.value = room.self.playerId
   }
 
   const resetGameStateVariables = () => {
@@ -359,7 +405,7 @@ export function useGameState() {
 
   // --- ACTIONS SENDERS ---
   const createRoom = (roomName: string) => {
-    if (!roomName.trim()) return
+    if (!roomName.trim() || !isConnected.value) return false
     sendWsAction('create_room', {
       name: roomName.trim(),
       config: {
@@ -368,21 +414,19 @@ export function useGameState() {
         colorMode: 'alternating'
       }
     })
+    return true
   }
 
   const joinRoom = (room: Room) => {
-    sendWsAction('join_room', { roomId: room.id })
+    return sendWsAction('join_room', { roomId: room.id })
   }
 
   const leaveRoom = () => {
     sendWsAction('leave_room')
-    activeRoom.value = null
-    currentView.value = 'lobby'
-    resetGameStateVariables()
   }
 
   const toggleReady = () => {
-    sendWsAction('toggle_ready')
+    return sendWsAction('toggle_ready')
   }
 
   // SOUND EFFECT FOR PLACED STONES
@@ -471,22 +515,23 @@ export function useGameState() {
 
   // Place stone triggers placement sound instantly, and pushes moves to WS
   const placeStone = (row: number, col: number) => {
+    if (!isConnected.value) return
     if (gameStatus.value !== 'playing') return
     if (simulationRole.value === 'spectator') return
     if (board.value[row][col] !== null) return
     if (turn.value !== simulationRole.value) return
 
-    // Pre-play place sound for responsive feeling
-    playPlaceSound()
-    sendWsAction('place_stone', { row, col })
+    if (sendWsAction('place_stone', { row, col })) {
+      playPlaceSound()
+    }
   }
 
   const retractMove = () => {
     if (simulationRole.value === 'spectator') return
-    if (activeRoom.value?.retractRequester) return
+    if (activeRoom.value?.retractPending) return
     if (retractCooldown.value > 0) return
 
-    sendWsAction('request_retract')
+    if (!sendWsAction('request_retract')) return
 
     // Start 5-second cooldown timer
     retractCooldown.value = 5
@@ -500,21 +545,12 @@ export function useGameState() {
 
   const resignGame = () => {
     if (simulationRole.value === 'spectator') return
-    sendWsAction('resign')
+    return sendWsAction('resign')
   }
 
   const sendChat = (text: string) => {
-    if (!text.trim()) return
-
-    // Add local preview to chat log instantly
-    chatMessages.value.push({
-      id: String(Date.now()),
-      senderName: nickname.value,
-      text: text.trim(),
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-    })
-
-    sendWsAction('send_chat', { text: text.trim() })
+    if (!text.trim()) return false
+    return sendWsAction('send_chat', { text: text.trim() })
   }
 
   // --- NEW MULTIPLAYER UTILS ---
@@ -523,23 +559,25 @@ export function useGameState() {
     sendWsAction('retract_respond', { agree })
   }
 
-  const updateRoomConfig = (config: {
-    autoJoinSpectator: boolean
-    disableChat: boolean
-    colorMode: string
-  }) => {
+  const updateRoomConfig = (config: RoomConfig) => {
     sendWsAction('configure_room', { config })
+  }
+
+  const claimSeat = () => {
+    sendWsAction('claim_seat')
   }
 
   const refreshRooms = () => {
     isManualRefreshing.value = true
-    sendWsAction('list_rooms')
+    if (!sendWsAction('list_rooms')) {
+      isManualRefreshing.value = false
+    }
   }
 
   // Computed properties for retract requesting dialogue
   const retractRequesterName = computed(() => activeRoom.value?.retractRequesterName || '')
   const showRetractDialog = computed(() => {
-    return retractRequesterName.value !== '' && retractRequesterName.value !== nickname.value
+    return activeRoom.value?.retractPending === true && !activeRoom.value.retractRequestedBySelf
   })
 
   // Watch for history changes to trigger sound effect for other player's turns
@@ -568,8 +606,17 @@ export function useGameState() {
     })
   }
 
+  onUnmounted(() => {
+    shouldReconnect = false
+    socketSerial++
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    if (ws) ws.close()
+    ws = null
+  })
+
   return {
     nickname,
+    playerId,
     currentView,
     rooms,
     activeRoom,
@@ -602,6 +649,7 @@ export function useGameState() {
     logout,
     respondRetract,
     updateRoomConfig,
+    claimSeat,
     refreshRooms,
     manualRefreshCount
   }
